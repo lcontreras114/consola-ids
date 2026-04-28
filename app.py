@@ -1,34 +1,34 @@
 import streamlit as st
 import pandas as pd
 
-# 1. CONFIGURACIÓN Y ESTILOS
-st.set_page_config(page_title="Consola de IDs", layout="wide")
+# 1. CONFIGURACIÓN
+st.set_page_config(page_title="Consola de IDs - Gestión", layout="wide")
 
+# Ocultar menú superior para más limpieza
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    .stAlert {margin-top: 10px;}
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CARGA Y LIMPIEZA DE DATOS (REGLA DE UNIFICACIÓN ESTRICTA)
-@st.cache_data(ttl=600)
+# 2. CARGA DE DATOS (GOOGLE DRIVE)
+@st.cache_data(ttl=300) # Actualiza cada 5 minutos
 def cargar_datos():
     url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTJNg51LW2DbTBSEOOSPOTHR0dc4xCF1lTZqLq_z_R9LkfMHO7CzyrI45eGhbApkyGtcBwX4ibmRtZd/pub?gid=1166538171&single=true&output=csv"
     df = pd.read_csv(url)
     df.columns = df.columns.str.strip()
     
-    # Renombrar para facilitar manejo interno según tus preferencias
+    # Renombrar para visualización (Respetando que se llame ID deteccion internamente)
     df = df.rename(columns={'SUB Tipo de Spot': 'Tipo', 'ID Deteccion': 'ID'})
     
-    # REGLA: Unificar ID si Compañía, Marca, Submarca, VersiOn y Tipo son iguales
-    columnas_clave = ['Compañía', 'Marca', 'Submarca', 'VersiOn', 'Tipo']
+    # UNIFICACIÓN ESTRICTA: Compañía, Marca, Submarca, Producto, VersiOn y Tipo
+    columnas_clave = ['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'Tipo']
     
-    # Agrupamos y tomamos el primer ID para evitar duplicidad de IDs en la misma categoría
+    # Aseguramos que el ID sea el mismo para filas idénticas
     df['ID'] = df.groupby(columnas_clave)['ID'].transform('first')
     
-    # Eliminamos filas duplicadas para que solo exista un ID por cada combinación única
+    # Eliminamos duplicados para mostrar solo una fila por ID único
     df = df.drop_duplicates(subset=columnas_clave).reset_index(drop=True)
     
     if 'Estado' not in df.columns:
@@ -38,92 +38,88 @@ def cargar_datos():
 
 df = cargar_datos()
 
-# 3. INTERFAZ DE PESTAÑAS
+# 3. INTERFAZ
+st.title("🛠️ Consola de Gestión: ID Deteccion")
+
 tab_buscar, tab_nuevo, tab_admin = st.tabs(["🔍 Buscar", "📥 Nuevo ID", "🛡️ Validación Admin"])
 
 # --- PESTAÑA: BUSCAR ---
 with tab_buscar:
-    st.subheader("Búsqueda Universal")
-    busqueda = st.text_input("Filtrar por Compañía, Marca, Producto, Versión o ID:", placeholder="Ej: Cal o 1620...")
+    busqueda = st.text_input("Filtrar por cualquier campo (Compañía, Marca, Producto, ID...):", placeholder="Ej: Cal...")
 
     if busqueda:
-        cols_filtro = ['Compañía', 'Marca', 'Submarca', 'VersiOn', 'ID', 'Producto']
+        cols_filtro = ['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'ID']
         mascara = df[cols_filtro].astype(str).apply(lambda x: x.str.contains(busqueda, case=False)).any(axis=1)
         resultados = df[mascara].copy()
 
         if not resultados.empty:
-            columnas_ver = ['Compañía', 'Marca', 'Submarca', 'VersiOn', 'Tipo', 'ID']
-            st.write(f"Resultados únicos encontrados ({len(resultados)}):")
-            st.dataframe(resultados[columnas_ver], hide_index=True, use_container_width=True)
+            columnas_ver = ['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'Tipo', 'ID']
+            st.write(f"**Resultados encontrados: {len(resultados)}**")
+            
+            # CÁLCULO DE ALTURA PARA QUITAR EL SCROLL INTERNO
+            # Multiplicamos el número de filas por 36 píxeles (aprox la altura de una fila) + el encabezado
+            alto_tabla = (len(resultados) + 1) * 36 
+            
+            # Mostramos la tabla configurada para que al hacer clic en el ID sea fácil de copiar
+            st.dataframe(
+                resultados[columnas_ver], 
+                hide_index=True, 
+                use_container_width=True, 
+                height=alto_tabla
+            )
+            st.caption("💡 *Tip: Para copiar el ID, haz clic sobre el número y presiona Ctrl + C*")
         else:
-            st.info("No se encontraron coincidencias.")
+            st.info("No hay coincidencias.")
 
-# --- PESTAÑA: NUEVO ID (CON VALIDACIÓN DE ERRORES) ---
+# --- PESTAÑA: NUEVO ID ---
 with tab_nuevo:
-    st.subheader("Sugerir Registro en Base de Datos")
+    st.subheader("Sugerir Nuevo Registro")
     
     def selector_o_manual(label, opciones):
-        opc_finales = ["-- Seleccionar --", "INGRESAR NUEVO (MANUAL)"] + sorted(list(opciones))
-        seleccion = st.selectbox(f"{label}:", opc_finales)
-        if seleccion == "INGRESAR NUEVO (MANUAL)":
-            return st.text_input(f"Escriba el nuevo {label}:").upper()
-        return seleccion
+        opc = ["-- Seleccionar --", "INGRESAR NUEVO (MANUAL)"] + sorted(list(opciones.astype(str).unique()))
+        sel = st.selectbox(f"{label}:", opc)
+        if sel == "INGRESAR NUEVO (MANUAL)":
+            return st.text_input(f"Escriba {label}:").upper()
+        return sel
 
-    with st.form("form_registro"):
-        col_a, col_b = st.columns(2)
-        
-        with col_a:
-            n_cia = selector_o_manual("Compañía", df['Compañía'].unique())
-            n_marca = selector_o_manual("Marca", df['Marca'].unique())
-            n_sub = selector_o_manual("Submarca", df['Submarca'].unique())
-        
-        with col_b:
-            n_ver = st.text_input("Versión (Manual)").upper()
-            n_tipo = selector_o_manual("Tipo", df['Tipo'].unique())
-            n_id = st.text_input("ID Detección")
+    with st.form("form_n"):
+        c1, c2 = st.columns(2)
+        with c1:
+            n_cia = selector_o_manual("Compañía", df['Compañía'])
+            n_mar = selector_o_manual("Marca", df['Marca'])
+            n_sub = selector_o_manual("Submarca", df['Submarca'])
+        with c2:
+            n_pro = selector_o_manual("Producto", df['Producto'])
+            n_ver = st.text_input("Versión").upper()
+            n_id = st.text_input("ID")
+            
+        if st.form_submit_button("Validar e Ingresar"):
+            if n_mar and n_mar not in df['Marca'].values:
+                st.warning(f"⚠️ La marca '{n_mar}' es nueva. Verifique ortografía.")
+            if n_mar in df['Marca'].values and n_ver:
+                vers_conocidas = df[df['Marca'] == n_mar]['VersiOn'].unique()
+                if n_ver not in vers_conocidas:
+                    st.error(f"🚨 La versión '{n_ver}' no coincide con registros previos de '{n_mar}'.")
+            st.success("Enviado para validación.")
 
-        btn_validar = st.form_submit_button("Validar e Ingresar")
-
-    if btn_validar:
-        # 1. Seguridad contra errores ortográficos básicos (Novatos)
-        if n_marca:
-            # Buscar marcas muy parecidas
-            marcas_existentes = df['Marca'].unique()
-            if n_marca not in marcas_existentes:
-                st.warning(f"⚠️ La marca '{n_marca}' no existe en la base de datos actual. Verifique que no sea un error ortográfico.")
-        
-        # 2. Validación de consistencia Marca-Versión
-        if n_marca and n_ver and n_marca in df['Marca'].values:
-            versiones_conocidas = df[df['Marca'] == n_marca]['VersiOn'].unique()
-            if n_ver not in versiones_conocidas:
-                st.error(f"🚨 Alerta de Consistencia: La versión '{n_ver}' no ha sido asociada anteriormente a la marca '{n_marca}'. ¿Está seguro de que es correcta?")
-        
-        st.success(f"Solicitud para el ID {n_id} enviada. Estado: No Validado.")
-
-# --- PESTAÑA: VALIDACIÓN ADMIN (ACCESO PROTEGIDO) ---
+# --- PESTAÑA: ADMIN ---
 with tab_admin:
-    if 'autenticado' not in st.session_state:
-        st.session_state.autenticado = False
+    if 'auth' not in st.session_state: st.session_state.auth = False
 
-    if not st.session_state.autenticado:
-        st.write("### Área Restringida")
-        with st.form("login_admin"):
-            user = st.text_input("Usuario")
-            pw = st.text_input("Contraseña", type="password")
+    if not st.session_state.auth:
+        with st.form("login"):
+            u = st.text_input("Usuario")
+            p = st.text_input("Contraseña", type="password")
             if st.form_submit_button("Entrar"):
-                if user == "LContreras" and pw == "shanks1324":
-                    st.session_state.autenticado = True
+                if u == "LContreras" and p == "shanks1324":
+                    st.session_state.auth = True
                     st.rerun()
-                else:
-                    st.error("Credenciales incorrectas")
+                else: st.error("Error")
     else:
-        st.subheader("Panel de Control - Validación de Datos")
-        st.write("Bienvenido, LContreras.")
-        
-        # Aquí se filtraría por estado 'No Validado' cuando conectemos la escritura al Drive
-        st.write("Vista previa de estados actuales:")
-        st.dataframe(df[['Compañía', 'Marca', 'ID', 'Estado']], hide_index=True)
-        
-        if st.button("Cerrar Sesión"):
-            st.session_state.autenticado = False
+        st.write("Panel de Validación")
+        alto_admin = (len(df) + 1) * 36
+        # Limitamos la altura máxima en el panel de admin para que no sea inmensa si hay miles de datos
+        st.dataframe(df[['Compañía', 'Marca', 'Producto', 'ID', 'Estado']], hide_index=True, height=min(alto_admin, 600))
+        if st.button("Salir"):
+            st.session_state.auth = False
             st.rerun()
