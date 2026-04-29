@@ -4,7 +4,6 @@ import pandas as pd
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="Consola de IDs - Gestión", layout="wide")
 
-# Ocultar menú superior para más limpieza
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -13,22 +12,18 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # 2. CARGA DE DATOS (GOOGLE DRIVE)
-@st.cache_data(ttl=300) # Actualiza cada 5 minutos
+@st.cache_data(ttl=300) 
 def cargar_datos():
     url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTJNg51LW2DbTBSEOOSPOTHR0dc4xCF1lTZqLq_z_R9LkfMHO7CzyrI45eGhbApkyGtcBwX4ibmRtZd/pub?gid=1166538171&single=true&output=csv"
     df = pd.read_csv(url)
     df.columns = df.columns.str.strip()
     
-    # Renombrar para visualización (Respetando que se llame ID deteccion internamente)
+    # Renombrar para visualización
     df = df.rename(columns={'SUB Tipo de Spot': 'Tipo', 'ID Deteccion': 'ID'})
     
     # UNIFICACIÓN ESTRICTA: Compañía, Marca, Submarca, Producto, VersiOn y Tipo
     columnas_clave = ['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'Tipo']
-    
-    # Aseguramos que el ID sea el mismo para filas idénticas
     df['ID'] = df.groupby(columnas_clave)['ID'].transform('first')
-    
-    # Eliminamos duplicados para mostrar solo una fila por ID único
     df = df.drop_duplicates(subset=columnas_clave).reset_index(drop=True)
     
     if 'Estado' not in df.columns:
@@ -54,20 +49,37 @@ with tab_buscar:
 
         if not resultados.empty:
             columnas_ver = ['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'Tipo', 'ID']
-            st.write(f"**Resultados encontrados: {len(resultados)}**")
             
-            # CÁLCULO DE ALTURA PARA QUITAR EL SCROLL INTERNO
-            # Multiplicamos el número de filas por 36 píxeles (aprox la altura de una fila) + el encabezado
-            alto_tabla = (len(resultados) + 1) * 36 
+            # DIVISIÓN DE PANTALLA: 4 partes para la tabla, 1 parte para el copiador
+            col_tabla, col_copiador = st.columns([4, 1])
             
-            # Mostramos la tabla configurada para que al hacer clic en el ID sea fácil de copiar
-            st.dataframe(
-                resultados[columnas_ver], 
-                hide_index=True, 
-                use_container_width=True, 
-                height=alto_tabla
-            )
-            st.caption("💡 *Tip: Para copiar el ID, haz clic sobre el número y presiona Ctrl + C*")
+            with col_tabla:
+                st.write(f"**Resultados encontrados: {len(resultados)}**")
+                alto_tabla = (len(resultados) + 1) * 36 
+                
+                # Tabla interactiva con on_select
+                evento = st.dataframe(
+                    resultados[columnas_ver], 
+                    hide_index=True, 
+                    use_container_width=True, 
+                    height=alto_tabla,
+                    on_select="rerun",           # Activa la interactividad
+                    selection_mode="single-row"  # Solo deja seleccionar una fila a la vez
+                )
+            
+            with col_copiador:
+                st.write("📋 **Copiar ID**")
+                filas_seleccionadas = evento.selection.rows
+                
+                if filas_seleccionadas:
+                    # Sacamos el ID exacto de la fila a la que se le hizo clic
+                    id_seleccionado = resultados.iloc[filas_seleccionadas[0]]['ID']
+                    
+                    # st.code crea un cuadro negro que trae un botón de copiar por defecto en la esquina superior derecha
+                    st.code(id_seleccionado, language=None)
+                    st.success("👆 Clic en el ícono superior derecho del cuadro oscuro para copiar.")
+                else:
+                    st.info("👈 Haz clic en la casilla izquierda de cualquier fila para extraer su ID.")
         else:
             st.info("No hay coincidencias.")
 
@@ -118,7 +130,6 @@ with tab_admin:
     else:
         st.write("Panel de Validación")
         alto_admin = (len(df) + 1) * 36
-        # Limitamos la altura máxima en el panel de admin para que no sea inmensa si hay miles de datos
         st.dataframe(df[['Compañía', 'Marca', 'Producto', 'ID', 'Estado']], hide_index=True, height=min(alto_admin, 600))
         if st.button("Salir"):
             st.session_state.auth = False
