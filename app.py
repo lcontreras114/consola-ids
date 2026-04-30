@@ -9,34 +9,27 @@ st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    /* Ajuste para que los selectores no tengan tanto margen arriba */
     .stSelectbox { margin-top: -15px; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CARGA DE DATOS MULTIPLES (GOOGLE DRIVE)
+# 2. CARGA DE DATOS MULTIPLES
 @st.cache_data(ttl=300) 
 def cargar_datos():
     try:
-        # Añadimos encoding='utf-8-sig' para eliminar basura invisible de Google
-        # URL 1: Base principal de IDs
         url_principal = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTJNg51LW2DbTBSEOOSPOTHR0dc4xCF1lTZqLq_z_R9LkfMHO7CzyrI45eGhbApkyGtcBwX4ibmRtZd/pub?gid=1166538171&single=true&output=csv"
         df = pd.read_csv(url_principal, encoding='utf-8-sig')
         df.columns = df.columns.str.strip()
         df = df.rename(columns={'SUB Tipo de Spot': 'Tipo', 'ID Deteccion': 'ID'})
         
-        # URL 2: Información de Canales
         url_canales = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTJNg51LW2DbTBSEOOSPOTHR0dc4xCF1lTZqLq_z_R9LkfMHO7CzyrI45eGhbApkyGtcBwX4ibmRtZd/pub?gid=2126304715&single=true&output=csv"
         df_canales = pd.read_csv(url_canales, encoding='utf-8-sig')
         df_canales.columns = df_canales.columns.str.strip()
         
-        # URL 3: IDs por Canal
         url_ids_canal = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTJNg51LW2DbTBSEOOSPOTHR0dc4xCF1lTZqLq_z_R9LkfMHO7CzyrI45eGhbApkyGtcBwX4ibmRtZd/pub?gid=1906691236&single=true&output=csv"
         df_ids_canal = pd.read_csv(url_ids_canal, encoding='utf-8-sig')
-        # Forzamos todo a MAYÚSCULAS en la Hoja 3 para evitar el KeyError
         df_ids_canal.columns = df_ids_canal.columns.str.strip().str.upper()
 
-        # Unificación Base Principal
         columnas_clave = ['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'Tipo']
         if all(col in df.columns for col in columnas_clave):
             df['ID'] = df.groupby(columnas_clave)['ID'].transform('first')
@@ -71,7 +64,22 @@ with tab_buscar:
         
         if not resultados.empty:
             st.write(f"**Resultados encontrados: {len(resultados)}**")
-            html_tabla = """<style>body{margin:0;font-family:sans-serif;}table{width:100%;border-collapse:collapse;font-size:14px;}th,td{border:1px solid #E5E7EB;padding:10px;text-align:left;}th{background-color:#1E3A8A;color:#FFF;font-size:12px;}.btn-c{background:#F1F5F9;border:1px solid #CBD5E1;cursor:pointer;width:100%;font-weight:700;border-radius:4px;padding:5px;transition:0.2s;}.btn-c:hover{background:#E2E8F0;}</style>"""
+            
+            html_tabla = """
+            <style>
+                :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --th-bg: #1E3A8A; --th-text: #FFFFFF; --row-alt: #F9FAFB; --btn-bg: #F1F5F9; --btn-border: #CBD5E1; --btn-hover: #E2E8F0; }
+                @media (prefers-color-scheme: dark) {
+                    :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #1E3A8A; --row-alt: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; }
+                }
+                body { margin: 0; font-family: sans-serif; background-color: transparent; }
+                table { width: 100%; border-collapse: collapse; font-size: 14px; background-color: var(--bg); }
+                th, td { border: 1px solid var(--border); padding: 10px; text-align: left; color: var(--text); }
+                th { background-color: var(--th-bg); color: var(--th-text); }
+                tr:nth-child(even) td { background-color: var(--row-alt); }
+                .btn-c { background: var(--btn-bg); border: 1px solid var(--btn-border); color: var(--text); cursor: pointer; width: 100%; font-weight: 700; border-radius: 4px; padding: 6px; transition: 0.2s; }
+                .btn-c:hover { background: var(--btn-hover); }
+            </style>
+            """
             html_tabla += "<table><tr><th>Compañía</th><th>Marca</th><th>Submarca</th><th>Producto</th><th>Versión</th><th>Tipo</th><th>ID</th></tr>"
             
             res_mostrar = resultados.head(100)
@@ -80,7 +88,9 @@ with tab_buscar:
                 html_tabla += f"<tr><td>{f['Compañía']}</td><td>{f['Marca']}</td><td>{f['Submarca']}</td><td>{f['Producto']}</td><td>{f['VersiOn']}</td><td>{f['Tipo']}</td><td><button class='btn-c' onclick=\"navigator.clipboard.writeText('{id_t}')\">{id_t}</button></td></tr>"
             html_tabla += "</table>"
             
-            components.html(html_tabla, height=min(800, 50 + len(res_mostrar)*45), scrolling=True)
+            altura_exacta = 60 + (len(res_mostrar) * 45)
+            components.html(html_tabla, height=altura_exacta, scrolling=False)
+            
             if len(resultados) > 100:
                 st.warning("⚠️ Se muestran los primeros 100 resultados.")
         else:
@@ -91,7 +101,6 @@ with tab_buscar:
 # ==========================================
 with tab_nuevo:
     st.subheader("Sugerir Nuevo Registro")
-    
     def selector_o_manual(label, opciones):
         opc = ["-- Seleccionar --", "INGRESAR NUEVO (MANUAL)"] + sorted(list(opciones.astype(str).unique()))
         sel = st.selectbox(f"{label}:", opc)
@@ -112,100 +121,130 @@ with tab_nuevo:
                 n_id = st.text_input("ID")
                 
             if st.form_submit_button("Validar e Ingresar"):
-                if n_mar and n_mar not in df['Marca'].values:
-                    st.warning(f"⚠️ La marca '{n_mar}' es nueva. Verifique ortografía.")
-                if n_mar in df['Marca'].values and n_ver:
-                    vers_conocidas = df[df['Marca'] == n_mar]['VersiOn'].unique()
-                    if n_ver not in vers_conocidas:
-                        st.error(f"🚨 La versión '{n_ver}' no coincide con registros previos de '{n_mar}'.")
                 st.success("Enviado para validación.")
 
 # ==========================================
-# --- PESTAÑA 3: IDs x CANAL (COMPACTO Y CORREGIDO) ---
+# --- PESTAÑA 3: IDs x CANAL ---
 # ==========================================
 with tab_canales:
     if not df_canales.empty:
-        col_busqueda, col_identidad = st.columns([1, 2.8])
+        col_busqueda, col_identidad = st.columns([1, 3.5])
         
         with col_busqueda:
             st.write("**Selección de Canal**")
-            # Lista de canales de la hoja 2
             lista_c = ["-- Seleccionar --"] + sorted(df_canales['CANAL'].dropna().unique().tolist())
             canal_sel = st.selectbox("Canal:", lista_c, label_visibility="collapsed")
 
         if canal_sel != "-- Seleccionar --":
             with col_identidad:
-                # Extraer info
                 info = df_canales[df_canales['CANAL'] == canal_sel].iloc[0]
-                
-                # Función para limpiar nulos
                 def clean(val): return str(val).replace('nan', 'N/A').strip()
                 
                 station_id = clean(info.get('StationID'))
                 tag_auto = clean(info.get('TAG DE AUTOPROMOS'))
+                grilla_val = clean(info.get('Grilla Web /Dish'))
                 texto_monitor = f"{canal_sel} - {station_id} - MONITOR"
                 
-                # HTML COMPACTO (Ficha + Autopromo)
+                # LÓGICA DEL BOTÓN GRILLA
+                btn_grilla_html = ""
+                if grilla_val != 'N/A' and grilla_val != '':
+                    if "http" in grilla_val.lower():
+                        link = grilla_val
+                        onclick_action = ""
+                        texto_btn = "🌐 Ver Grilla Web<br><span style='font-size:10px; font-weight:normal;'>(Abrir enlace)</span>"
+                    elif "carta oficial" in grilla_val.lower():
+                        link = "#"
+                        # Adaptamos la ruta para que Javascript la entienda al copiarla
+                        ruta_js = r"\\192.168.148.80\Casos\MonDedicado\Programacion".replace("\\", "\\\\")
+                        onclick_action = f"onclick=\"event.preventDefault(); cop_ruta('{ruta_js}');\""
+                        texto_btn = "📁 Carta Oficial<br><span style='font-size:10px; font-weight:normal;'>(Clic para copiar ruta)</span>"
+                    else:
+                        link = "https://secciones.dish.com.mx/guiadeprogramacion.html"
+                        onclick_action = ""
+                        texto_btn = f"📡 Grilla Dish<br><span style='font-size:11px; font-weight:normal;'>({grilla_val})</span>"
+
+                    btn_grilla_html = f"""
+                    <a href="{link}" target="_blank" class="btn-grilla" {onclick_action}>
+                        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">
+                            {texto_btn}
+                        </div>
+                    </a>
+                    """
+                
+                # HTML DE LA CABECERA EN 3 BLOQUES (Ficha - Grilla - Autopromo)
                 html_ficha = f"""
                 <style>
-                    body {{ font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; gap: 15px; align-items: flex-start; }}
-                    .card {{
-                        flex: 2;
-                        display: flex; justify-content: space-between; align-items: center;
-                        background: #F8FAFC; border: 2px dashed #3B82F6; border-radius: 10px;
-                        padding: 12px; cursor: pointer; transition: 0.2s;
+                    :root {{ --bg-card: #F8FAFC; --text: #1E293B; --btn-promo: #0F172A; --btn-text: #FFF; }}
+                    @media (prefers-color-scheme: dark) {{
+                        :root {{ --bg-card: #1E293B; --text: #F8FAFC; --btn-promo: #374151; }}
                     }}
-                    .card:hover {{ background: #EFF6FF; transform: scale(1.01); }}
-                    .info-txt {{ font-size: 13px; color: #1E293B; line-height: 1.4; }}
+                    body {{ font-family: sans-serif; margin: 0; display: flex; gap: 15px; align-items: stretch; background: transparent; width: 100%; }}
+                    
+                    .card {{ flex: 2.2; display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); border: 2px dashed #3B82F6; border-radius: 10px; padding: 12px; cursor: pointer; transition: 0.2s; color: var(--text); }}
+                    .card:hover {{ transform: scale(1.01); border-color: #60A5FA; }}
+                    .info-txt {{ font-size: 13px; line-height: 1.4; }}
                     .logo-img img {{ max-height: 70px; max-width: 120px; }}
-                    .btn-promo {{
-                        flex: 1; height: 100px;
-                        background: #0F172A; color: white; border: none; border-radius: 10px;
-                        font-size: 13px; font-weight: bold; cursor: pointer;
-                        transition: 0.2s;
-                    }}
-                    .btn-promo:hover {{ background: #1E293B; }}
-                    .toast {{ position: fixed; bottom: 5px; right: 5px; background: #10B981; color: white; padding: 5px 10px; border-radius: 5px; font-size: 11px; display: none; }}
+                    
+                    .btn-grilla {{ flex: 1; background: #3B82F6; color: white; border-radius: 10px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none; border: none; box-sizing: border-box; }}
+                    .btn-grilla:hover {{ background: #2563EB; transform: scale(1.02); }}
+                    
+                    .btn-promo {{ flex: 1; background: var(--btn-promo); color: var(--btn-text); border: none; border-radius: 10px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; }}
+                    .btn-promo:hover {{ filter: brightness(1.2); transform: scale(1.02); }}
+                    
+                    .toast {{ position: fixed; bottom: 5px; right: 5px; background: #10B981; color: white; padding: 8px 15px; border-radius: 5px; font-size: 12px; font-weight: bold; display: none; z-index: 1000; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);}}
                 </style>
                 <script>
-                    function cop(txt) {{
+                    function cop(txt, msg = '✓ Copiado') {{
                         navigator.clipboard.writeText(txt);
-                        let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = '✓ Copiado: ' + txt;
-                        setTimeout(()=>{{t.style.display='none'}}, 1500);
+                        let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = msg;
+                        setTimeout(()=>{{t.style.display='none'}}, 2000);
+                    }}
+                    function cop_ruta(txt) {{
+                        cop(txt, '✓ Ruta de Red copiada. Pégala en tu carpeta.');
                     }}
                 </script>
+                
                 <div class="card" onclick="cop('{texto_monitor}')">
                     <div class="info-txt">
                         <b>{canal_sel}</b><br>
                         Network: {clean(info.get('Network'))} | Tipo: {clean(info.get('Tipo'))}<br>
-                        ID: {station_id} | Server: {clean(info.get('Server'))}<br>
-                        Grilla: {clean(info.get('Grilla Web /Dish'))}
+                        ID: {station_id} | Server: {clean(info.get('Server'))}
                     </div>
                     <div class="logo-img"><img src="{clean(info.get('LOGO_URL'))}" onerror="this.style.display='none'"></div>
                 </div>
-                <button class="btn-promo" onclick="cop('{tag_auto}')">
+                
+                {btn_grilla_html}
+                
+                <button class="btn-promo" onclick="cop('{tag_auto}', '✓ Tag de Autopromo copiado')">
                     TAG AUTOPROMO:<br>{tag_auto}
                 </button>
                 <div id="t" class="toast"></div>
                 """
-                components.html(html_ficha, height=110)
+                components.html(html_ficha, height=115, scrolling=False)
 
             st.divider()
             st.write("### IDs de Operación")
             
-            # Filtrado de IDs de la Hoja 3 (Protegido contra errores de columna)
             if not df_ids_canal.empty and 'CANAL' in df_ids_canal.columns:
                 ids_c = df_ids_canal[df_ids_canal['CANAL'] == canal_sel]
-                
                 if not ids_c.empty:
                     hashes = ids_c['CODIGO HASH'].dropna().unique()
-                    
                     for h in hashes:
                         st.markdown(f"**{h}**")
-                        # AQUÍ ESTÁ LA CORRECCIÓN DEL NAMERROR QUE ARROJABA ANTES:
                         df_h = ids_c[ids_c['CODIGO HASH'] == h]
                         
-                        html_ids = """<style>body{margin:0;}table{width:100%;border-collapse:collapse;font-size:13px;font-family:sans-serif;}th,td{border:1px solid #EEE;padding:8px;text-align:left;}th{background:#F8FAFC;} .btn-i{width:100%;cursor:pointer;font-weight:700;background:#FFF;border:1px solid #DDD;border-radius:4px;padding:4px; transition:0.2s;}.btn-i:hover{background:#EFF6FF; border-color:#3B82F6;}</style>"""
+                        html_ids = """
+                        <style>
+                            :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --th-bg: #F8FAFC; --btn-bg: #FFF; --btn-border: #CBD5E1; --btn-hover: #EFF6FF; }
+                            @media (prefers-color-scheme: dark) { :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; } }
+                            body{margin:0; background: transparent;} 
+                            table{width:100%;border-collapse:collapse;font-size:13px;font-family:sans-serif; background: var(--bg);} 
+                            th,td{border:1px solid var(--border);padding:8px;text-align:left; color: var(--text);} 
+                            th{background: var(--th-bg);} 
+                            .btn-i{width:100%;cursor:pointer;font-weight:700;background:var(--btn-bg);border:1px solid var(--btn-border); color: var(--text); border-radius:4px;padding:4px; transition:0.2s;}
+                            .btn-i:hover{background:var(--btn-hover); border-color:#3B82F6;}
+                        </style>
+                        """
                         html_ids += "<table><tr><th width='20%'>Tipo</th><th width='60%'>Descripción</th><th width='20%'>ID</th></tr>"
                         
                         for _, r in df_h.iterrows():
@@ -213,35 +252,17 @@ with tab_canales:
                             html_ids += f"<tr><td>{r['TIPO']}</td><td>{r['DESCRIPCION']}</td><td><button class='btn-i' onclick=\"navigator.clipboard.writeText('{v_id}')\">{v_id}</button></td></tr>"
                         html_ids += "</table>"
                         
-                        # Dibujamos cada tablita
-                        components.html(html_ids, height=(len(df_h)*38)+40)
+                        altura_ids = 40 + (len(df_h) * 45)
+                        components.html(html_ids, height=altura_ids, scrolling=False)
                 else:
-                    st.info("Sin registros de IDs para este canal en la base de datos.")
+                    st.info("Sin registros de IDs para este canal.")
             else:
-                st.error("Error: No se encontró la columna 'CANAL' en la base de datos de IDs (Hoja 3).")
+                st.error("Error: No se encontró la columna 'CANAL'.")
     else:
-        st.warning("No se pudo cargar la información de los canales. Verifique los enlaces de Google Sheets.")
+        st.warning("Verifique los enlaces de Google Sheets.")
 
 # ==========================================
 # --- PESTAÑA 4: ADMIN ---
 # ==========================================
 with tab_admin:
-    if 'auth' not in st.session_state: st.session_state.auth = False
-
-    if not st.session_state.auth:
-        with st.form("login"):
-            u = st.text_input("Usuario")
-            p = st.text_input("Contraseña", type="password")
-            if st.form_submit_button("Entrar"):
-                if u == "LContreras" and p == "shanks1324":
-                    st.session_state.auth = True
-                    st.rerun()
-                else: st.error("Credenciales incorrectas")
-    else:
-        st.write("Panel de Validación de Nuevos Registros")
-        if not df.empty:
-            alto_admin = (len(df) + 1) * 36
-            st.dataframe(df[['Compañía', 'Marca', 'Producto', 'ID', 'Estado']], hide_index=True, height=min(alto_admin, 600))
-        if st.button("Cerrar Sesión"):
-            st.session_state.auth = False
-            st.rerun()
+    st.write("Panel de Administración en mantenimiento.")
