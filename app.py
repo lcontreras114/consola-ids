@@ -13,6 +13,10 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# MEMORIA TEMPORAL PARA NUEVOS IDs
+if 'nuevos_ids' not in st.session_state:
+    st.session_state.nuevos_ids = pd.DataFrame(columns=['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'ID', 'Estado'])
+
 # 2. CARGA DE DATOS MULTIPLES
 @st.cache_data(ttl=300) 
 def cargar_datos():
@@ -80,7 +84,6 @@ with tab_buscar:
                 
                 .btn-c { background: var(--btn-bg); border: 1px solid var(--btn-border); color: var(--text); cursor: pointer; width: 100%; font-weight: 700; border-radius: 4px; padding: 6px; transition: 0.2s; }
                 .btn-c:hover { background: var(--btn-hover); transform: scale(1.02); }
-                /* Estilo cuando está copiado */
                 .btn-c.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
             </style>
             <script>
@@ -134,7 +137,16 @@ with tab_nuevo:
                 n_id = st.text_input("ID")
                 
             if st.form_submit_button("Validar e Ingresar"):
-                st.success("Enviado para validación.")
+                if n_cia and n_mar and n_id:
+                    # Guardar en memoria temporal de la sesión
+                    nuevo_registro = pd.DataFrame([{
+                        'Compañía': n_cia, 'Marca': n_mar, 'Submarca': n_sub, 
+                        'Producto': n_pro, 'VersiOn': n_ver, 'ID': n_id, 'Estado': 'Pendiente'
+                    }])
+                    st.session_state.nuevos_ids = pd.concat([st.session_state.nuevos_ids, nuevo_registro], ignore_index=True)
+                    st.success("¡Registrado en memoria! El administrador ahora puede revisarlo en la Pestaña 4.")
+                else:
+                    st.error("Faltan campos obligatorios por llenar.")
 
 # ==========================================
 # --- PESTAÑA 3: IDs x CANAL ---
@@ -158,7 +170,6 @@ with tab_canales:
                 grilla_val = clean(info.get('Grilla Web /Dish'))
                 texto_monitor = f"{canal_sel} - {station_id} - MONITOR"
                 
-                # LÓGICA DEL BOTÓN GRILLA MEJORADA
                 btn_grilla_html = ""
                 if grilla_val != 'N/A' and grilla_val != '':
                     if "http" in grilla_val.lower():
@@ -166,10 +177,8 @@ with tab_canales:
                         onclick_action = ""
                         texto_btn = "🌐 Ver Grilla Web<br><span style='font-size:10px; font-weight:normal;'>(Abrir enlace)</span>"
                     elif "carta oficial" in grilla_val.lower():
-                        # Intento de enlace local (Chrome lo bloqueará, pero IE/Edge antiguos podrían abrirlo)
                         link = "file://192.168.148.80/Casos/MonDedicado/Programacion"
                         ruta_js = r"\\192.168.148.80\Casos\MonDedicado\Programacion".replace("\\", "\\\\")
-                        # Al hacer clic, NO bloqueamos el link, dejamos que intente abrir y ADEMÁS copiamos
                         onclick_action = f"onclick=\"cop_ruta(event, '{ruta_js}');\""
                         texto_btn = "📁 Carta Oficial<br><span style='font-size:10px; font-weight:normal;'>(Intenta abrir / Copia ruta)</span>"
                     else:
@@ -192,18 +201,14 @@ with tab_canales:
                         :root {{ --bg-card: #1E293B; --text: #F8FAFC; --btn-promo: #374151; }}
                     }}
                     body {{ font-family: sans-serif; margin: 0; display: flex; gap: 15px; align-items: stretch; background: transparent; width: 100%; }}
-                    
                     .card {{ flex: 2.2; display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); border: 2px dashed #3B82F6; border-radius: 10px; padding: 12px; cursor: pointer; transition: 0.2s; color: var(--text); }}
                     .card:hover {{ transform: scale(1.01); border-color: #60A5FA; }}
                     .info-txt {{ font-size: 13px; line-height: 1.4; }}
                     .logo-img img {{ max-height: 70px; max-width: 120px; }}
-                    
                     .btn-grilla {{ flex: 1; background: #3B82F6; color: white; border-radius: 10px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none; border: none; box-sizing: border-box; }}
                     .btn-grilla:hover {{ background: #2563EB; transform: scale(1.02); }}
-                    
                     .btn-promo {{ flex: 1; background: var(--btn-promo); color: var(--btn-text); border: none; border-radius: 10px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; }}
                     .btn-promo:hover {{ filter: brightness(1.2); transform: scale(1.02); }}
-                    
                     .toast {{ position: fixed; bottom: 5px; right: 5px; background: #10B981; color: white; padding: 8px 15px; border-radius: 5px; font-size: 12px; font-weight: bold; display: none; z-index: 1000; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);}}
                 </style>
                 <script>
@@ -214,11 +219,10 @@ with tab_canales:
                     }}
                     function cop_ruta(e, txt) {{
                         navigator.clipboard.writeText(txt);
-                        let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = '✓ Ruta de Red copiada (Pégala en tu explorador si el botón no la abrió)';
+                        let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = '✓ Ruta copiada (Pégala en tu explorador de red)';
                         setTimeout(()=>{{t.style.display='none'}}, 3500);
                     }}
                 </script>
-                
                 <div class="card" onclick="cop('{texto_monitor}')">
                     <div class="info-txt">
                         <b>{canal_sel}</b><br>
@@ -227,9 +231,7 @@ with tab_canales:
                     </div>
                     <div class="logo-img"><img src="{clean(info.get('LOGO_URL'))}" onerror="this.style.display='none'"></div>
                 </div>
-                
                 {btn_grilla_html}
-                
                 <button class="btn-promo" onclick="cop('{tag_auto}', '✓ Tag de Autopromo copiado')">
                     TAG AUTOPROMO:<br>{tag_auto}
                 </button>
@@ -257,7 +259,6 @@ with tab_canales:
                             th,td{border:1px solid var(--border);padding:8px;text-align:left; color: var(--text); transition: background-color 0.1s;} 
                             th{background: var(--th-bg);} 
                             tr:hover td { background-color: var(--hover-resaltador) !important; color: var(--text) !important; }
-                            
                             .btn-i{width:100%;cursor:pointer;font-weight:700;background:var(--btn-bg);border:1px solid var(--btn-border); color: var(--text); border-radius:4px;padding:4px; transition:0.2s;}
                             .btn-i:hover{background:var(--btn-hover); border-color:#3B82F6; transform: scale(1.02);}
                             .btn-i.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
@@ -268,10 +269,7 @@ with tab_canales:
                                 let txtOrig = boton.innerHTML;
                                 boton.innerHTML = '¡Copiado!';
                                 boton.classList.add('copiado');
-                                setTimeout(() => { 
-                                    boton.innerHTML = txtOrig; 
-                                    boton.classList.remove('copiado'); 
-                                }, 1200);
+                                setTimeout(() => { boton.innerHTML = txtOrig; boton.classList.remove('copiado'); }, 1200);
                             }
                         </script>
                         """
@@ -295,4 +293,36 @@ with tab_canales:
 # --- PESTAÑA 4: ADMIN ---
 # ==========================================
 with tab_admin:
-    st.write("Panel de Administración en mantenimiento.")
+    if 'auth' not in st.session_state: st.session_state.auth = False
+
+    if not st.session_state.auth:
+        with st.form("login"):
+            u = st.text_input("Usuario")
+            p = st.text_input("Contraseña", type="password")
+            if st.form_submit_button("Entrar"):
+                if u == "LContreras" and p == "shanks1324":
+                    st.session_state.auth = True
+                    st.rerun()
+                else: st.error("Credenciales incorrectas. Intente de nuevo.")
+    else:
+        st.subheader("🛡️ Panel de Validación Admin")
+        
+        # 1. Tabla de Nuevos Registros de la sesión actual
+        st.write("### 📥 IDs Pendientes (Generados en esta sesión)")
+        if not st.session_state.nuevos_ids.empty:
+            st.dataframe(st.session_state.nuevos_ids, hide_index=True)
+            st.info("👆 Cópialos y pégalos en tu Google Sheet (Base Madre) para hacerlos permanentes.")
+        else:
+            st.write("No hay IDs nuevos pendientes.")
+            
+        st.divider()
+        
+        # 2. Tabla Base Madre de Drive
+        st.write("### 📚 Base Madre de IDs (Confiables en Drive)")
+        if not df.empty:
+            st.dataframe(df[['Compañía', 'Marca', 'Producto', 'ID', 'Estado']], hide_index=True, height=400)
+            
+        st.divider()
+        if st.button("Cerrar Sesión"):
+            st.session_state.auth = False
+            st.rerun()
