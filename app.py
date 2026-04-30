@@ -67,32 +67,45 @@ with tab_buscar:
             
             html_tabla = """
             <style>
-                :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --th-bg: #1E3A8A; --th-text: #FFFFFF; --row-alt: #F9FAFB; --btn-bg: #F1F5F9; --btn-border: #CBD5E1; --btn-hover: #E2E8F0; }
+                :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --th-bg: #1E3A8A; --th-text: #FFFFFF; --row-alt: #F9FAFB; --btn-bg: #F1F5F9; --btn-border: #CBD5E1; --btn-hover: #E2E8F0; --hover-resaltador: rgba(250, 204, 21, 0.35); }
                 @media (prefers-color-scheme: dark) {
-                    :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #1E3A8A; --row-alt: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; }
+                    :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #1E3A8A; --row-alt: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; --hover-resaltador: rgba(250, 204, 21, 0.2); }
                 }
                 body { margin: 0; font-family: sans-serif; background-color: transparent; }
                 table { width: 100%; border-collapse: collapse; font-size: 14px; background-color: var(--bg); }
-                th, td { border: 1px solid var(--border); padding: 10px; text-align: left; color: var(--text); }
+                th, td { border: 1px solid var(--border); padding: 10px; text-align: left; color: var(--text); transition: background-color 0.1s; }
                 th { background-color: var(--th-bg); color: var(--th-text); }
                 tr:nth-child(even) td { background-color: var(--row-alt); }
+                tr:hover td { background-color: var(--hover-resaltador) !important; color: var(--text) !important; }
+                
                 .btn-c { background: var(--btn-bg); border: 1px solid var(--btn-border); color: var(--text); cursor: pointer; width: 100%; font-weight: 700; border-radius: 4px; padding: 6px; transition: 0.2s; }
-                .btn-c:hover { background: var(--btn-hover); }
+                .btn-c:hover { background: var(--btn-hover); transform: scale(1.02); }
+                /* Estilo cuando está copiado */
+                .btn-c.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
             </style>
+            <script>
+                function copiarID(texto, boton) {
+                    navigator.clipboard.writeText(texto);
+                    let txtOrig = boton.innerHTML;
+                    boton.innerHTML = '¡Copiado!';
+                    boton.classList.add('copiado');
+                    setTimeout(() => { 
+                        boton.innerHTML = txtOrig; 
+                        boton.classList.remove('copiado'); 
+                    }, 1200);
+                }
+            </script>
             """
             html_tabla += "<table><tr><th>Compañía</th><th>Marca</th><th>Submarca</th><th>Producto</th><th>Versión</th><th>Tipo</th><th>ID</th></tr>"
             
-            res_mostrar = resultados.head(100)
-            for _, f in res_mostrar.iterrows():
+            for _, f in resultados.iterrows():
                 id_t = str(f['ID'])
-                html_tabla += f"<tr><td>{f['Compañía']}</td><td>{f['Marca']}</td><td>{f['Submarca']}</td><td>{f['Producto']}</td><td>{f['VersiOn']}</td><td>{f['Tipo']}</td><td><button class='btn-c' onclick=\"navigator.clipboard.writeText('{id_t}')\">{id_t}</button></td></tr>"
+                html_tabla += f"<tr><td>{f['Compañía']}</td><td>{f['Marca']}</td><td>{f['Submarca']}</td><td>{f['Producto']}</td><td>{f['VersiOn']}</td><td>{f['Tipo']}</td><td><button class='btn-c' onclick=\"copiarID('{id_t}', this)\">{id_t}</button></td></tr>"
             html_tabla += "</table>"
             
-            altura_exacta = 60 + (len(res_mostrar) * 45)
+            altura_exacta = 80 + (len(resultados) * 55)
             components.html(html_tabla, height=altura_exacta, scrolling=False)
             
-            if len(resultados) > 100:
-                st.warning("⚠️ Se muestran los primeros 100 resultados.")
         else:
             st.info("No hay coincidencias.")
 
@@ -145,7 +158,7 @@ with tab_canales:
                 grilla_val = clean(info.get('Grilla Web /Dish'))
                 texto_monitor = f"{canal_sel} - {station_id} - MONITOR"
                 
-                # LÓGICA DEL BOTÓN GRILLA
+                # LÓGICA DEL BOTÓN GRILLA MEJORADA
                 btn_grilla_html = ""
                 if grilla_val != 'N/A' and grilla_val != '':
                     if "http" in grilla_val.lower():
@@ -153,11 +166,12 @@ with tab_canales:
                         onclick_action = ""
                         texto_btn = "🌐 Ver Grilla Web<br><span style='font-size:10px; font-weight:normal;'>(Abrir enlace)</span>"
                     elif "carta oficial" in grilla_val.lower():
-                        link = "#"
-                        # Adaptamos la ruta para que Javascript la entienda al copiarla
+                        # Intento de enlace local (Chrome lo bloqueará, pero IE/Edge antiguos podrían abrirlo)
+                        link = "file://192.168.148.80/Casos/MonDedicado/Programacion"
                         ruta_js = r"\\192.168.148.80\Casos\MonDedicado\Programacion".replace("\\", "\\\\")
-                        onclick_action = f"onclick=\"event.preventDefault(); cop_ruta('{ruta_js}');\""
-                        texto_btn = "📁 Carta Oficial<br><span style='font-size:10px; font-weight:normal;'>(Clic para copiar ruta)</span>"
+                        # Al hacer clic, NO bloqueamos el link, dejamos que intente abrir y ADEMÁS copiamos
+                        onclick_action = f"onclick=\"cop_ruta(event, '{ruta_js}');\""
+                        texto_btn = "📁 Carta Oficial<br><span style='font-size:10px; font-weight:normal;'>(Intenta abrir / Copia ruta)</span>"
                     else:
                         link = "https://secciones.dish.com.mx/guiadeprogramacion.html"
                         onclick_action = ""
@@ -171,7 +185,6 @@ with tab_canales:
                     </a>
                     """
                 
-                # HTML DE LA CABECERA EN 3 BLOQUES (Ficha - Grilla - Autopromo)
                 html_ficha = f"""
                 <style>
                     :root {{ --bg-card: #F8FAFC; --text: #1E293B; --btn-promo: #0F172A; --btn-text: #FFF; }}
@@ -199,8 +212,10 @@ with tab_canales:
                         let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = msg;
                         setTimeout(()=>{{t.style.display='none'}}, 2000);
                     }}
-                    function cop_ruta(txt) {{
-                        cop(txt, '✓ Ruta de Red copiada. Pégala en tu carpeta.');
+                    function cop_ruta(e, txt) {{
+                        navigator.clipboard.writeText(txt);
+                        let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = '✓ Ruta de Red copiada (Pégala en tu explorador si el botón no la abrió)';
+                        setTimeout(()=>{{t.style.display='none'}}, 3500);
                     }}
                 </script>
                 
@@ -235,24 +250,39 @@ with tab_canales:
                         
                         html_ids = """
                         <style>
-                            :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --th-bg: #F8FAFC; --btn-bg: #FFF; --btn-border: #CBD5E1; --btn-hover: #EFF6FF; }
-                            @media (prefers-color-scheme: dark) { :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; } }
+                            :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --th-bg: #F8FAFC; --btn-bg: #FFF; --btn-border: #CBD5E1; --btn-hover: #EFF6FF; --hover-resaltador: rgba(250, 204, 21, 0.35); }
+                            @media (prefers-color-scheme: dark) { :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; --hover-resaltador: rgba(250, 204, 21, 0.2); } }
                             body{margin:0; background: transparent;} 
                             table{width:100%;border-collapse:collapse;font-size:13px;font-family:sans-serif; background: var(--bg);} 
-                            th,td{border:1px solid var(--border);padding:8px;text-align:left; color: var(--text);} 
+                            th,td{border:1px solid var(--border);padding:8px;text-align:left; color: var(--text); transition: background-color 0.1s;} 
                             th{background: var(--th-bg);} 
+                            tr:hover td { background-color: var(--hover-resaltador) !important; color: var(--text) !important; }
+                            
                             .btn-i{width:100%;cursor:pointer;font-weight:700;background:var(--btn-bg);border:1px solid var(--btn-border); color: var(--text); border-radius:4px;padding:4px; transition:0.2s;}
-                            .btn-i:hover{background:var(--btn-hover); border-color:#3B82F6;}
+                            .btn-i:hover{background:var(--btn-hover); border-color:#3B82F6; transform: scale(1.02);}
+                            .btn-i.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
                         </style>
+                        <script>
+                            function copiarID(texto, boton) {
+                                navigator.clipboard.writeText(texto);
+                                let txtOrig = boton.innerHTML;
+                                boton.innerHTML = '¡Copiado!';
+                                boton.classList.add('copiado');
+                                setTimeout(() => { 
+                                    boton.innerHTML = txtOrig; 
+                                    boton.classList.remove('copiado'); 
+                                }, 1200);
+                            }
+                        </script>
                         """
                         html_ids += "<table><tr><th width='20%'>Tipo</th><th width='60%'>Descripción</th><th width='20%'>ID</th></tr>"
                         
                         for _, r in df_h.iterrows():
                             v_id = str(r['ID'])
-                            html_ids += f"<tr><td>{r['TIPO']}</td><td>{r['DESCRIPCION']}</td><td><button class='btn-i' onclick=\"navigator.clipboard.writeText('{v_id}')\">{v_id}</button></td></tr>"
+                            html_ids += f"<tr><td>{r['TIPO']}</td><td>{r['DESCRIPCION']}</td><td><button class='btn-i' onclick=\"copiarID('{v_id}', this)\">{v_id}</button></td></tr>"
                         html_ids += "</table>"
                         
-                        altura_ids = 40 + (len(df_h) * 45)
+                        altura_ids = 60 + (len(df_h) * 55)
                         components.html(html_ids, height=altura_ids, scrolling=False)
                 else:
                     st.info("Sin registros de IDs para este canal.")
