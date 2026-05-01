@@ -5,11 +5,16 @@ import streamlit.components.v1 as components
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="Consola de IDs - Gestión", layout="wide")
 
+# CSS para empujar todo hacia arriba y compactar espacios
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    /* Reducir el espacio muerto en la parte superior de la página */
+    .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
+    /* Ajuste de selectores y text inputs para que no tengan tanto margen */
     .stSelectbox { margin-top: -15px; }
+    .stTextInput { margin-bottom: -10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -57,17 +62,24 @@ tab_buscar, tab_nuevo, tab_canales, tab_admin = st.tabs([
 ])
 
 # ==========================================
-# --- PESTAÑA 1: BUSCAR AAEE ---
+# --- PESTAÑA 1: BUSCAR AAEE (CON HISTORIAL Y COMPACTA) ---
 # ==========================================
 with tab_buscar:
-    busqueda = st.text_input("Filtrar por cualquier campo (Compañía, Marca, Producto, ID...):", placeholder="Ej: Caliente...", key="search_universal")
+    # Agrupamos el buscador a la izquierda para ahorrar espacio vertical
+    col_busq, col_resul = st.columns([1.5, 3.5])
+    
+    with col_busq:
+        busqueda = st.text_input("🔍 Buscar (Compañía, Marca, ID...):", placeholder="Ej: Caliente...", key="search_universal")
+        
     if busqueda and not df.empty:
         cols_filtro = ['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'ID']
         mascara = df[cols_filtro].astype(str).apply(lambda x: x.str.contains(busqueda, case=False)).any(axis=1)
         resultados = df[mascara].copy()
         
         if not resultados.empty:
-            st.write(f"**Resultados encontrados: {len(resultados)}**")
+            with col_resul:
+                # Mostramos los resultados en la misma línea del buscador
+                st.markdown(f"<div style='margin-top: 32px; color: #3B82F6; font-weight: bold;'>Resultados encontrados: {len(resultados)}</div>", unsafe_allow_html=True)
             
             html_tabla = """
             <style>
@@ -76,37 +88,108 @@ with tab_buscar:
                     :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #1E3A8A; --row-alt: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; --hover-resaltador: rgba(250, 204, 21, 0.2); }
                 }
                 body { margin: 0; font-family: sans-serif; background-color: transparent; }
+                
+                /* Layout para dividir Tabla e Historial */
+                .layout-container { display: flex; gap: 20px; align-items: flex-start; width: 100%; margin-top: -10px; }
+                .table-container { flex: 3.5; overflow-x: auto; }
+                .history-container { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 15px; min-width: 250px; }
+                
                 table { width: 100%; border-collapse: collapse; font-size: 14px; background-color: var(--bg); }
                 th, td { border: 1px solid var(--border); padding: 10px; text-align: left; color: var(--text); transition: background-color 0.1s; }
                 th { background-color: var(--th-bg); color: var(--th-text); }
                 tr:nth-child(even) td { background-color: var(--row-alt); }
                 tr:hover td { background-color: var(--hover-resaltador) !important; color: var(--text) !important; }
                 
+                /* Botones de Tabla */
                 .btn-c { background: var(--btn-bg); border: 1px solid var(--btn-border); color: var(--text); cursor: pointer; width: 100%; font-weight: 700; border-radius: 4px; padding: 6px; transition: 0.2s; }
                 .btn-c:hover { background: var(--btn-hover); transform: scale(1.02); }
                 .btn-c.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
+                
+                /* Estilos del Historial */
+                .hist-title { font-size: 15px; font-weight: bold; color: var(--text); margin-bottom: 12px; border-bottom: 2px solid var(--border); padding-bottom: 8px; }
+                .btn-hist { display: block; width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--border); padding: 8px 10px; margin-bottom: 8px; border-radius: 6px; cursor: pointer; color: var(--text); transition: 0.2s; }
+                .btn-hist:hover { border-color: #3B82F6; background: var(--btn-hover); transform: translateX(-3px); }
+                .btn-hist.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
+                .hist-desc { font-size: 11px; color: #64748b; margin-bottom: 4px; line-height: 1.3; }
+                .hist-id { font-size: 13px; font-weight: bold; }
+                .hist-empty { font-size: 12px; color: #94A3B8; text-align: center; padding: 20px 0; }
             </style>
+            
             <script>
-                function copiarID(texto, boton) {
-                    navigator.clipboard.writeText(texto);
+                function renderizarHistorial() {
+                    let historial = JSON.parse(localStorage.getItem('aaee_history') || '[]');
+                    let contenedor = document.getElementById('hist-list');
+                    if (!contenedor) return;
+                    
+                    if (historial.length === 0) {
+                        contenedor.innerHTML = "<div class='hist-empty'>Copia un ID en la tabla y aparecerá aquí.</div>";
+                        return;
+                    }
+                    
+                    let html = "";
+                    historial.forEach(item => {
+                        html += `
+                            <button class="btn-hist" onclick="copiarDesdeHistorial('${item.id}', this)">
+                                <div class="hist-desc">${item.desc}</div>
+                                <div class="hist-id">📋 ${item.id}</div>
+                            </button>
+                        `;
+                    });
+                    contenedor.innerHTML = html;
+                }
+
+                function copiarID(id, desc, boton) {
+                    navigator.clipboard.writeText(id);
+                    
                     let txtOrig = boton.innerHTML;
                     boton.innerHTML = '¡Copiado!';
                     boton.classList.add('copiado');
-                    setTimeout(() => { 
-                        boton.innerHTML = txtOrig; 
-                        boton.classList.remove('copiado'); 
-                    }, 1200);
+                    setTimeout(() => { boton.innerHTML = txtOrig; boton.classList.remove('copiado'); }, 1200);
+                    
+                    let historial = JSON.parse(localStorage.getItem('aaee_history') || '[]');
+                    historial = historial.filter(item => item.id !== id); 
+                    historial.unshift({id: id, desc: desc}); 
+                    if (historial.length > 20) historial.pop(); 
+                    
+                    localStorage.setItem('aaee_history', JSON.stringify(historial));
+                    renderizarHistorial(); 
                 }
+                
+                function copiarDesdeHistorial(id, boton) {
+                    navigator.clipboard.writeText(id);
+                    boton.classList.add('copiado');
+                    setTimeout(() => { boton.classList.remove('copiado'); }, 1200);
+                }
+
+                window.onload = renderizarHistorial;
             </script>
             """
+            
+            html_tabla += "<div class='layout-container'>"
+            html_tabla += "<div class='table-container'>"
             html_tabla += "<table><tr><th>Compañía</th><th>Marca</th><th>Submarca</th><th>Producto</th><th>Versión</th><th>Tipo</th><th>ID</th></tr>"
             
             for _, f in resultados.iterrows():
                 id_t = str(f['ID'])
-                html_tabla += f"<tr><td>{f['Compañía']}</td><td>{f['Marca']}</td><td>{f['Submarca']}</td><td>{f['Producto']}</td><td>{f['VersiOn']}</td><td>{f['Tipo']}</td><td><button class='btn-c' onclick=\"copiarID('{id_t}', this)\">{id_t}</button></td></tr>"
-            html_tabla += "</table>"
+                limpiar = lambda x: str(x).replace('nan','N/A').replace("'","\\'").replace('"', '\\"')
+                desc_texto = f"{limpiar(f['Marca'])} - {limpiar(f['Submarca'])} - {limpiar(f['Producto'])} - {limpiar(f['VersiOn'])}"
+                
+                html_tabla += f"<tr><td>{f['Compañía']}</td><td>{f['Marca']}</td><td>{f['Submarca']}</td><td>{f['Producto']}</td><td>{f['VersiOn']}</td><td>{f['Tipo']}</td><td><button class='btn-c' onclick=\"copiarID('{id_t}', '{desc_texto}', this)\">{id_t}</button></td></tr>"
             
-            altura_exacta = 80 + (len(resultados) * 55)
+            html_tabla += "</table></div>"
+            
+            html_tabla += """
+            <div class='history-container'>
+                <div class='hist-title'>🕒 Últimos 20 Copiados</div>
+                <div id='hist-list'></div>
+            </div>
+            </div>
+            """
+            
+            altura_tabla = 80 + (len(resultados) * 55)
+            altura_historial = 100 + (20 * 75) 
+            altura_exacta = max(altura_tabla, altura_historial)
+            
             components.html(html_tabla, height=altura_exacta, scrolling=False)
             
         else:
@@ -138,7 +221,6 @@ with tab_nuevo:
                 
             if st.form_submit_button("Validar e Ingresar"):
                 if n_cia and n_mar and n_id:
-                    # Guardar en memoria temporal de la sesión
                     nuevo_registro = pd.DataFrame([{
                         'Compañía': n_cia, 'Marca': n_mar, 'Submarca': n_sub, 
                         'Producto': n_pro, 'VersiOn': n_ver, 'ID': n_id, 'Estado': 'Pendiente'
@@ -307,7 +389,7 @@ with tab_admin:
     else:
         st.subheader("🛡️ Panel de Validación Admin")
         
-        # 1. Tabla de Nuevos Registros de la sesión actual
+        # 1. Tabla de Nuevos Registros
         st.write("### 📥 IDs Pendientes (Generados en esta sesión)")
         if not st.session_state.nuevos_ids.empty:
             st.dataframe(st.session_state.nuevos_ids, hide_index=True)
