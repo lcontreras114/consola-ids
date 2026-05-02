@@ -1,28 +1,34 @@
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
+import re
 
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="Consola de IDs - Gestión", layout="wide")
 
-# CSS para empujar todo hacia arriba y compactar espacios
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    /* Reducir el espacio muerto en la parte superior de la página */
     .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
-    /* Ajuste de selectores y text inputs para que no tengan tanto margen */
     .stSelectbox { margin-top: -15px; }
     .stTextInput { margin-bottom: -10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# MEMORIA TEMPORAL PARA NUEVOS IDs
-if 'nuevos_ids' not in st.session_state:
-    st.session_state.nuevos_ids = pd.DataFrame(columns=['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'ID', 'Estado'])
+# 2. SISTEMA DE AUTENTICACIÓN (LOGIN STATE)
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = ""
+    st.session_state.rol = ""
 
-# 2. CARGA DE DATOS MULTIPLES
+# MEMORIA TEMPORAL PARA NUEVOS IDs
+if 'df_live' not in st.session_state:
+    st.session_state.df_live = None
+if 'nuevos_ids' not in st.session_state:
+    st.session_state.nuevos_ids = pd.DataFrame(columns=['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'ID', 'Estado', 'Tipo'])
+
+# 3. CARGA DE DATOS MULTIPLES (Ahora con Usuarios)
 @st.cache_data(ttl=300) 
 def cargar_datos():
     try:
@@ -39,6 +45,19 @@ def cargar_datos():
         df_ids_canal = pd.read_csv(url_ids_canal, encoding='utf-8-sig')
         df_ids_canal.columns = df_ids_canal.columns.str.strip().str.upper()
 
+        # ==========================================
+        # ⚠️ ¡ATENCIÓN! REEMPLAZA EL ENLACE DE ABAJO CON EL GID DE TU HOJA 'USUARIOS'
+        # ==========================================
+        url_usuarios = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTJNg51LW2DbTBSEOOSPOTHR0dc4xCF1lTZqLq_z_R9LkfMHO7CzyrI45eGhbApkyGtcBwX4ibmRtZd/pub?gid=447315811&single=true&output=csv" 
+        
+        try:
+            df_usuarios = pd.read_csv(url_usuarios, encoding='utf-8-sig')
+            df_usuarios.columns = df_usuarios.columns.str.strip().str.upper()
+        except:
+            # Dataframe de emergencia por si no pones el link aún, para que no explote
+            df_usuarios = pd.DataFrame(columns=['USUARIO', 'CONTRASEÑA', 'RANGO'])
+            st.error("⚠️ Faltó actualizar el enlace CSV de la hoja USUARIOS en el código.")
+
         columnas_clave = ['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'Tipo']
         if all(col in df.columns for col in columnas_clave):
             df['ID'] = df.groupby(columnas_clave)['ID'].transform('first')
@@ -47,193 +66,277 @@ def cargar_datos():
         if 'Estado' not in df.columns:
             df['Estado'] = 'Confiable'
         
-        return df, df_canales, df_ids_canal
+        return df, df_canales, df_ids_canal, df_usuarios
     except Exception as e:
         st.error(f"Error al cargar datos: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-df, df_canales, df_ids_canal = cargar_datos()
+df_base, df_canales, df_ids_canal, df_usuarios = cargar_datos()
 
-# 3. INTERFAZ
-st.title("🛠️ Consola de Gestión Centralizada")
+if st.session_state.df_live is None and not df_base.empty:
+    st.session_state.df_live = df_base.copy()
 
-tab_buscar, tab_nuevo, tab_canales, tab_admin = st.tabs([
-    "🔍 Buscar AAEE", "📥 Nuevo ID", "📺 IDs x Canal", "🛡️ Validación Admin"
-])
+df = st.session_state.df_live if st.session_state.df_live is not None else df_base
 
 # ==========================================
-# --- PESTAÑA 1: BUSCAR AAEE (CON HISTORIAL Y COMPACTA) ---
+# 4. PANTALLA DE LOGIN GLOBAL
 # ==========================================
-with tab_buscar:
-    # Agrupamos el buscador a la izquierda para ahorrar espacio vertical
-    col_busq, col_resul = st.columns([1.5, 3.5])
+if not st.session_state.logged_in:
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    c_izq, c_centro, c_der = st.columns([1, 1.5, 1])
     
-    with col_busq:
-        busqueda = st.text_input("🔍 Buscar (Compañía, Marca, ID...):", placeholder="Ej: Caliente...", key="search_universal")
+    with c_centro:
+        st.title("🔐 Consola de Gestión")
+        st.write("Por favor, inicia sesión para continuar.")
         
-    if busqueda and not df.empty:
-        cols_filtro = ['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'ID']
-        mascara = df[cols_filtro].astype(str).apply(lambda x: x.str.contains(busqueda, case=False)).any(axis=1)
-        resultados = df[mascara].copy()
-        
-        if not resultados.empty:
-            with col_resul:
-                # Mostramos los resultados en la misma línea del buscador
-                st.markdown(f"<div style='margin-top: 32px; color: #3B82F6; font-weight: bold;'>Resultados encontrados: {len(resultados)}</div>", unsafe_allow_html=True)
+        with st.form("form_login"):
+            user = st.text_input("Usuario")
+            pwd = st.text_input("Contraseña", type="password")
+            btn_login = st.form_submit_button("Entrar", type="primary")
             
-            html_tabla = """
-            <style>
-                :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --th-bg: #1E3A8A; --th-text: #FFFFFF; --row-alt: #F9FAFB; --btn-bg: #F1F5F9; --btn-border: #CBD5E1; --btn-hover: #E2E8F0; --hover-resaltador: rgba(250, 204, 21, 0.35); }
-                @media (prefers-color-scheme: dark) {
-                    :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #1E3A8A; --row-alt: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; --hover-resaltador: rgba(250, 204, 21, 0.2); }
-                }
-                body { margin: 0; font-family: sans-serif; background-color: transparent; }
-                
-                /* Layout para dividir Tabla e Historial */
-                .layout-container { display: flex; gap: 20px; align-items: flex-start; width: 100%; margin-top: -10px; }
-                .table-container { flex: 3.5; overflow-x: auto; }
-                .history-container { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 15px; min-width: 250px; }
-                
-                table { width: 100%; border-collapse: collapse; font-size: 14px; background-color: var(--bg); }
-                th, td { border: 1px solid var(--border); padding: 10px; text-align: left; color: var(--text); transition: background-color 0.1s; }
-                th { background-color: var(--th-bg); color: var(--th-text); }
-                tr:nth-child(even) td { background-color: var(--row-alt); }
-                tr:hover td { background-color: var(--hover-resaltador) !important; color: var(--text) !important; }
-                
-                /* Botones de Tabla */
-                .btn-c { background: var(--btn-bg); border: 1px solid var(--btn-border); color: var(--text); cursor: pointer; width: 100%; font-weight: 700; border-radius: 4px; padding: 6px; transition: 0.2s; }
-                .btn-c:hover { background: var(--btn-hover); transform: scale(1.02); }
-                .btn-c.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
-                
-                /* Estilos del Historial */
-                .hist-title { font-size: 15px; font-weight: bold; color: var(--text); margin-bottom: 12px; border-bottom: 2px solid var(--border); padding-bottom: 8px; }
-                .btn-hist { display: block; width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--border); padding: 8px 10px; margin-bottom: 8px; border-radius: 6px; cursor: pointer; color: var(--text); transition: 0.2s; }
-                .btn-hist:hover { border-color: #3B82F6; background: var(--btn-hover); transform: translateX(-3px); }
-                .btn-hist.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
-                .hist-desc { font-size: 11px; color: #64748b; margin-bottom: 4px; line-height: 1.3; }
-                .hist-id { font-size: 13px; font-weight: bold; }
-                .hist-empty { font-size: 12px; color: #94A3B8; text-align: center; padding: 20px 0; }
-            </style>
-            
-            <script>
-                function renderizarHistorial() {
-                    let historial = JSON.parse(localStorage.getItem('aaee_history') || '[]');
-                    let contenedor = document.getElementById('hist-list');
-                    if (!contenedor) return;
+            if btn_login:
+                if not df_usuarios.empty and 'USUARIO' in df_usuarios.columns and 'CONTRASEÑA' in df_usuarios.columns:
+                    # Validar credenciales
+                    usuario_valido = df_usuarios[(df_usuarios['USUARIO'].astype(str) == user) & (df_usuarios['CONTRASEÑA'].astype(str) == pwd)]
                     
-                    if (historial.length === 0) {
-                        contenedor.innerHTML = "<div class='hist-empty'>Copia un ID en la tabla y aparecerá aquí.</div>";
-                        return;
+                    if not usuario_valido.empty:
+                        rango_usuario = str(usuario_valido.iloc[0]['RANGO']).lower().strip()
+                        if rango_usuario in ['adm', 'regular', 'capa']:
+                            st.session_state.logged_in = True
+                            st.session_state.username = user
+                            st.session_state.rol = rango_usuario
+                            st.rerun()
+                        else:
+                            st.error("El rango de este usuario no es válido. Comuníquese con soporte.")
+                    else:
+                        # Respaldo (Backdoor) tuyo por si falla el Drive
+                        if user == "LContreras" and pwd == "shanks1324":
+                            st.session_state.logged_in = True
+                            st.session_state.username = "LContreras"
+                            st.session_state.rol = "adm"
+                            st.rerun()
+                        else:
+                            st.error("Usuario o contraseña incorrectos.")
+                else:
+                    # Respaldo si la hoja de usuarios no carga bien
+                    if user == "LContreras" and pwd == "shanks1324":
+                        st.session_state.logged_in = True
+                        st.session_state.username = "LContreras"
+                        st.session_state.rol = "adm"
+                        st.rerun()
+                    else:
+                        st.error("Base de datos de usuarios no configurada. Usa la cuenta maestra.")
+    st.stop() # Detiene la ejecución aquí si no están logueados
+
+# ==========================================
+# 5. CONSOLA PRINCIPAL (Una vez logueados)
+# ==========================================
+
+# Cabecera con Botón de Cerrar Sesión
+col_titulo, col_logout = st.columns([4, 1])
+with col_titulo:
+    st.title("🛠️ Consola de Gestión Centralizada")
+with col_logout:
+    st.markdown(f"<div style='text-align: right; color:#3B82F6; font-weight:bold; margin-top:10px;'>👤 {st.session_state.username} ({st.session_state.rol.upper()})</div>", unsafe_allow_html=True)
+    if st.button("Cerrar Sesión", use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.username = ""
+        st.session_state.rol = ""
+        st.rerun()
+
+# ------------------------------------------
+# LÓGICA DE PESTAÑAS DINÁMICAS (RBAC)
+# ------------------------------------------
+rol_actual = st.session_state.rol
+pestanas_visibles = ["🔍 Buscar AAEE"]
+
+if rol_actual in ["regular", "adm"]:
+    pestanas_visibles.append("📥 Nuevo ID")
+    
+pestanas_visibles.append("📺 IDs x Canal")
+
+if rol_actual == "adm":
+    pestanas_visibles.append("🛡️ Validación Admin")
+
+# Generamos solo las pestañas que el usuario tiene derecho a ver
+tabs = st.tabs(pestanas_visibles)
+idx_tab = 0
+
+# --- PESTAÑA 1: BUSCAR AAEE ---
+with tabs[idx_tab]:
+    col_main, col_hist = st.columns([3.5, 1.2])
+    
+    with col_main:
+        busqueda = st.text_input("🔍 Buscar (Compañía, Marca, Producto, ID...):", placeholder="Ej: Caliente...", key="search_universal")
+        
+        if busqueda and not df.empty:
+            cols_filtro = ['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'ID']
+            mascara = df[cols_filtro].astype(str).apply(lambda x: x.str.contains(busqueda, case=False)).any(axis=1)
+            resultados = df[mascara].copy()
+            
+            if not resultados.empty:
+                st.markdown(f"<div style='color: #3B82F6; font-weight: bold; margin-bottom: 10px;'>Resultados encontrados: {len(resultados)}</div>", unsafe_allow_html=True)
+                
+                html_tabla = """
+                <style>
+                    :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --th-bg: #1E3A8A; --th-text: #FFFFFF; --row-alt: #F9FAFB; --btn-bg: #F1F5F9; --btn-border: #CBD5E1; --btn-hover: #E2E8F0; --hover-resaltador: rgba(250, 204, 21, 0.35); }
+                    @media (prefers-color-scheme: dark) { :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #1E3A8A; --row-alt: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; --hover-resaltador: rgba(250, 204, 21, 0.2); } }
+                    body { margin: 0; font-family: sans-serif; background-color: transparent; }
+                    table { width: 100%; border-collapse: collapse; font-size: 14px; background-color: var(--bg); }
+                    th, td { border: 1px solid var(--border); padding: 10px; text-align: left; color: var(--text); transition: background-color 0.1s; }
+                    th { background-color: var(--th-bg); color: var(--th-text); text-align: center; }
+                    tr:nth-child(even) td { background-color: var(--row-alt); }
+                    tr:hover td { background-color: var(--hover-resaltador) !important; color: var(--text) !important; }
+                    
+                    /* BOTONES NORMALES */
+                    .btn-c { background: var(--btn-bg); border: 1px solid var(--btn-border); color: var(--text); cursor: pointer; width: 100%; font-weight: 700; border-radius: 4px; padding: 6px; transition: 0.2s; }
+                    .btn-c:hover { background: var(--btn-hover); transform: scale(1.02); }
+                    .btn-c.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
+                    
+                    /* BOTONES NO VALIDADOS (AMARILLOS) */
+                    .btn-c.warn { background-color: #FEF08A; border-color: #EAB308; color: #854D0E; }
+                    .btn-c.warn:hover { background-color: #FDE047; }
+                    @media (prefers-color-scheme: dark) {
+                        .btn-c.warn { background-color: #713F12; border-color: #A16207; color: #FEF08A; }
+                        .btn-c.warn:hover { background-color: #854D0E; }
                     }
-                    
-                    let html = "";
-                    historial.forEach(item => {
-                        html += `
-                            <button class="btn-hist" onclick="copiarDesdeHistorial('${item.id}', this)">
-                                <div class="hist-desc">${item.desc}</div>
-                                <div class="hist-id">📋 ${item.id}</div>
-                            </button>
-                        `;
-                    });
-                    contenedor.innerHTML = html;
-                }
-
-                function copiarID(id, desc, boton) {
-                    navigator.clipboard.writeText(id);
-                    
-                    let txtOrig = boton.innerHTML;
-                    boton.innerHTML = '¡Copiado!';
-                    boton.classList.add('copiado');
-                    setTimeout(() => { boton.innerHTML = txtOrig; boton.classList.remove('copiado'); }, 1200);
-                    
-                    let historial = JSON.parse(localStorage.getItem('aaee_history') || '[]');
-                    historial = historial.filter(item => item.id !== id); 
-                    historial.unshift({id: id, desc: desc}); 
-                    if (historial.length > 20) historial.pop(); 
-                    
-                    localStorage.setItem('aaee_history', JSON.stringify(historial));
-                    renderizarHistorial(); 
-                }
+                </style>
+                <script>
+                    function copiarID(id, desc, boton) {
+                        navigator.clipboard.writeText(id);
+                        let txtOrig = boton.innerHTML;
+                        boton.innerHTML = '¡Copiado!';
+                        boton.classList.add('copiado');
+                        setTimeout(() => { boton.innerHTML = txtOrig; boton.classList.remove('copiado'); }, 1200);
+                        
+                        let historial = JSON.parse(localStorage.getItem('aaee_history') || '[]');
+                        historial = historial.filter(item => item.id !== id); 
+                        historial.unshift({id: id, desc: desc}); 
+                        if (historial.length > 20) historial.pop(); 
+                        localStorage.setItem('aaee_history', JSON.stringify(historial));
+                    }
+                </script>
+                """
                 
-                function copiarDesdeHistorial(id, boton) {
-                    navigator.clipboard.writeText(id);
-                    boton.classList.add('copiado');
-                    setTimeout(() => { boton.classList.remove('copiado'); }, 1200);
-                }
-
-                window.onload = renderizarHistorial;
-            </script>
-            """
-            
-            html_tabla += "<div class='layout-container'>"
-            html_tabla += "<div class='table-container'>"
-            html_tabla += "<table><tr><th>Compañía</th><th>Marca</th><th>Submarca</th><th>Producto</th><th>Versión</th><th>Tipo</th><th>ID</th></tr>"
-            
-            for _, f in resultados.iterrows():
-                id_t = str(f['ID'])
-                limpiar = lambda x: str(x).replace('nan','N/A').replace("'","\\'").replace('"', '\\"')
-                desc_texto = f"{limpiar(f['Marca'])} - {limpiar(f['Submarca'])} - {limpiar(f['Producto'])} - {limpiar(f['VersiOn'])}"
+                html_tabla += "<table><tr><th width='5%'>Est.</th><th>Compañía</th><th>Marca</th><th>Submarca</th><th>Producto</th><th>Versión</th><th>Tipo</th><th>ID</th></tr>"
                 
-                html_tabla += f"<tr><td>{f['Compañía']}</td><td>{f['Marca']}</td><td>{f['Submarca']}</td><td>{f['Producto']}</td><td>{f['VersiOn']}</td><td>{f['Tipo']}</td><td><button class='btn-c' onclick=\"copiarID('{id_t}', '{desc_texto}', this)\">{id_t}</button></td></tr>"
-            
-            html_tabla += "</table></div>"
-            
-            html_tabla += """
-            <div class='history-container'>
-                <div class='hist-title'>🕒 Últimos 20 Copiados</div>
-                <div id='hist-list'></div>
-            </div>
-            </div>
-            """
-            
-            altura_tabla = 80 + (len(resultados) * 55)
-            altura_historial = 100 + (20 * 75) 
-            altura_exacta = max(altura_tabla, altura_historial)
-            
-            components.html(html_tabla, height=altura_exacta, scrolling=False)
-            
-        else:
-            st.info("No hay coincidencias.")
+                for _, f in resultados.iterrows():
+                    id_t = str(f['ID'])
+                    estado = str(f.get('Estado', 'Confiable'))
+                    
+                    if estado == 'NO VALIDADO':
+                        luz = "<div style='text-align:center; font-size:16px;' title='No Validado'>🟡</div>"
+                        clase_btn = "btn-c warn"
+                    else:
+                        luz = "<div style='text-align:center; font-size:16px;' title='Validado'>🟢</div>"
+                        clase_btn = "btn-c"
+                        
+                    limpiar = lambda x: str(x).replace('nan','N/A').replace("'","\\'").replace('"', '\\"')
+                    desc_texto = f"{limpiar(f['Marca'])} - {limpiar(f['Submarca'])} - {limpiar(f['Producto'])} - {limpiar(f['VersiOn'])}"
+                    html_tabla += f"<tr><td>{luz}</td><td>{f['Compañía']}</td><td>{f['Marca']}</td><td>{f['Submarca']}</td><td>{f['Producto']}</td><td>{f['VersiOn']}</td><td>{f['Tipo']}</td><td><button class='{clase_btn}' onclick=\"copiarID('{id_t}', '{desc_texto}', this)\">{id_t}</button></td></tr>"
+                
+                html_tabla += "</table>"
+                
+                altura_exacta = 60 + (len(resultados) * 55)
+                components.html(html_tabla, height=altura_exacta, scrolling=False)
+                
+            else:
+                st.info("No hay coincidencias en la base de datos.")
 
-# ==========================================
-# --- PESTAÑA 2: NUEVO ID ---
-# ==========================================
-with tab_nuevo:
-    st.subheader("Sugerir Nuevo Registro")
-    def selector_o_manual(label, opciones):
-        opc = ["-- Seleccionar --", "INGRESAR NUEVO (MANUAL)"] + sorted(list(opciones.astype(str).unique()))
-        sel = st.selectbox(f"{label}:", opc)
-        if sel == "INGRESAR NUEVO (MANUAL)":
-            return st.text_input(f"Escriba {label}:").upper()
-        return sel
+    with col_hist:
+        html_historial = """
+        <style>
+            :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --btn-bg: #F8FAFC; --btn-hover: #EFF6FF; }
+            @media (prefers-color-scheme: dark) { :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --btn-bg: #111827; --btn-hover: #374151; } }
+            body { margin: 0; font-family: sans-serif; background-color: transparent; }
+            .history-container { background: var(--bg); border: 2px solid var(--border); border-radius: 10px; padding: 12px; height: 85vh; max-height: 900px; overflow-y: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+            .history-container::-webkit-scrollbar { width: 6px; }
+            .history-container::-webkit-scrollbar-track { background: transparent; }
+            .history-container::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+            .hist-title { font-size: 16px; font-weight: bold; color: var(--text); margin-bottom: 12px; border-bottom: 2px solid var(--border); padding-bottom: 8px; position: sticky; top: 0; background: var(--bg); z-index: 10;}
+            .btn-hist { display: block; width: 100%; text-align: left; background: var(--btn-bg); border: 1px solid var(--border); padding: 10px; margin-bottom: 8px; border-radius: 6px; cursor: pointer; color: var(--text); transition: 0.2s; }
+            .btn-hist:hover { border-color: #3B82F6; background: var(--btn-hover); transform: translateY(-2px); box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
+            .btn-hist.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
+            .hist-desc { font-size: 11px; color: #64748b; margin-bottom: 4px; line-height: 1.3; }
+            .hist-id { font-size: 13px; font-weight: bold; }
+            .hist-empty { font-size: 13px; color: #94A3B8; text-align: center; padding: 30px 10px; line-height: 1.5;}
+        </style>
+        <div class='history-container'><div class='hist-title'>🕒 Historial</div><div id='hist-list'></div></div>
+        <script>
+            let currentHistStr = "";
+            function renderizarHistorial() {
+                let str = localStorage.getItem('aaee_history') || '[]';
+                if (str === currentHistStr) return; 
+                currentHistStr = str;
+                let historial = JSON.parse(str);
+                let contenedor = document.getElementById('hist-list');
+                if (historial.length === 0) { contenedor.innerHTML = "<div class='hist-empty'>Copia un ID en tu búsqueda y aparecerá aquí automáticamente.</div>"; return; }
+                let html = "";
+                historial.forEach(item => { html += `<button class="btn-hist" onclick="copiarDesdeHistorial('${item.id}', this)"><div class="hist-desc">${item.desc}</div><div class="hist-id">📋 ${item.id}</div></button>`; });
+                contenedor.innerHTML = html;
+            }
+            function copiarDesdeHistorial(id, boton) {
+                navigator.clipboard.writeText(id); boton.classList.add('copiado');
+                setTimeout(() => { boton.classList.remove('copiado'); }, 1200);
+            }
+            window.onload = renderizarHistorial; setInterval(renderizarHistorial, 800); 
+        </script>
+        """
+        components.html(html_historial, height=950, scrolling=False)
+idx_tab += 1
 
-    if not df.empty:
-        with st.form("form_n"):
+# --- PESTAÑA 2: NUEVO ID --- (Solo si es Regular o Admin)
+if rol_actual in ["regular", "adm"]:
+    with tabs[idx_tab]:
+        st.subheader("Sugerir Nuevo Registro")
+        
+        def aplicar_reglas_marca(texto):
+            if not texto: return ""
+            t = str(texto).upper()
+            t = t.replace("&", "Y")
+            t = t.replace("'", "").replace("´", "").replace("`", "")
+            t = re.sub(r'[^A-Z0-9\-\s]', '', t)
+            t = re.sub(r'\s+', ' ', t).strip()
+            return t
+
+        def selector_o_manual(label, opciones, sufijo_key):
+            opc = ["-- Seleccionar --", "INGRESAR NUEVO (MANUAL)"] + sorted(list(opciones.astype(str).unique()))
+            sel = st.selectbox(f"{label}:", opc, key=f"sel_{sufijo_key}")
+            if sel == "INGRESAR NUEVO (MANUAL)":
+                return st.text_input(f"Escriba {label}:", key=f"txt_{sufijo_key}").upper()
+            return sel if sel != "-- Seleccionar --" else ""
+
+        if not df.empty:
             c1, c2 = st.columns(2)
             with c1:
-                n_cia = selector_o_manual("Compañía", df['Compañía'])
-                n_mar = selector_o_manual("Marca", df['Marca'])
-                n_sub = selector_o_manual("Submarca", df['Submarca'])
-            with c2:
-                n_pro = selector_o_manual("Producto", df['Producto'])
-                n_ver = st.text_input("Versión").upper()
-                n_id = st.text_input("ID")
+                n_cia = selector_o_manual("Compañía", df['Compañía'], "cia")
+                n_mar = selector_o_manual("Marca", df['Marca'], "mar")
+                n_mar_sugerida = aplicar_reglas_marca(n_mar)
+                n_sub = selector_o_manual("Submarca", df['Submarca'], "sub")
                 
-            if st.form_submit_button("Validar e Ingresar"):
+            with c2:
+                n_pro = selector_o_manual("Producto", df['Producto'], "pro")
+                n_ver = st.text_input("Versión (Se auto-completa con la marca)", value=n_mar_sugerida).upper()
+                n_id = st.text_input("ID Detección")
+                n_tipo = selector_o_manual("Tipo de Spot", df['Tipo'], "tipo")
+                
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Ingresar y mandar a Validación", type="primary"):
                 if n_cia and n_mar and n_id:
                     nuevo_registro = pd.DataFrame([{
                         'Compañía': n_cia, 'Marca': n_mar, 'Submarca': n_sub, 
-                        'Producto': n_pro, 'VersiOn': n_ver, 'ID': n_id, 'Estado': 'Pendiente'
+                        'Producto': n_pro, 'VersiOn': n_ver, 'Tipo': n_tipo, 
+                        'ID': n_id, 'Estado': 'NO VALIDADO'
                     }])
+                    st.session_state.df_live = pd.concat([nuevo_registro, st.session_state.df_live], ignore_index=True)
                     st.session_state.nuevos_ids = pd.concat([st.session_state.nuevos_ids, nuevo_registro], ignore_index=True)
-                    st.success("¡Registrado en memoria! El administrador ahora puede revisarlo en la Pestaña 4.")
+                    st.success("¡Ingresado correctamente! Ya puedes buscarlo. Aparecerá con luz amarilla hasta ser validado por un Administrador.")
                 else:
-                    st.error("Faltan campos obligatorios por llenar.")
+                    st.error("⚠️ Compañía, Marca e ID son campos obligatorios.")
+    idx_tab += 1
 
-# ==========================================
-# --- PESTAÑA 3: IDs x CANAL ---
-# ==========================================
-with tab_canales:
+# --- PESTAÑA 3: IDs x CANAL --- (Todos los roles)
+with tabs[idx_tab]:
     if not df_canales.empty:
         col_busqueda, col_identidad = st.columns([1, 3.5])
         
@@ -268,20 +371,12 @@ with tab_canales:
                         onclick_action = ""
                         texto_btn = f"📡 Grilla Dish<br><span style='font-size:11px; font-weight:normal;'>({grilla_val})</span>"
 
-                    btn_grilla_html = f"""
-                    <a href="{link}" target="_blank" class="btn-grilla" {onclick_action}>
-                        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">
-                            {texto_btn}
-                        </div>
-                    </a>
-                    """
+                    btn_grilla_html = f"""<a href="{link}" target="_blank" class="btn-grilla" {onclick_action}><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">{texto_btn}</div></a>"""
                 
                 html_ficha = f"""
                 <style>
                     :root {{ --bg-card: #F8FAFC; --text: #1E293B; --btn-promo: #0F172A; --btn-text: #FFF; }}
-                    @media (prefers-color-scheme: dark) {{
-                        :root {{ --bg-card: #1E293B; --text: #F8FAFC; --btn-promo: #374151; }}
-                    }}
+                    @media (prefers-color-scheme: dark) {{ :root {{ --bg-card: #1E293B; --text: #F8FAFC; --btn-promo: #374151; }} }}
                     body {{ font-family: sans-serif; margin: 0; display: flex; gap: 15px; align-items: stretch; background: transparent; width: 100%; }}
                     .card {{ flex: 2.2; display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); border: 2px dashed #3B82F6; border-radius: 10px; padding: 12px; cursor: pointer; transition: 0.2s; color: var(--text); }}
                     .card:hover {{ transform: scale(1.01); border-color: #60A5FA; }}
@@ -294,36 +389,21 @@ with tab_canales:
                     .toast {{ position: fixed; bottom: 5px; right: 5px; background: #10B981; color: white; padding: 8px 15px; border-radius: 5px; font-size: 12px; font-weight: bold; display: none; z-index: 1000; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);}}
                 </style>
                 <script>
-                    function cop(txt, msg = '✓ Copiado') {{
-                        navigator.clipboard.writeText(txt);
-                        let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = msg;
-                        setTimeout(()=>{{t.style.display='none'}}, 2000);
-                    }}
-                    function cop_ruta(e, txt) {{
-                        navigator.clipboard.writeText(txt);
-                        let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = '✓ Ruta copiada (Pégala en tu explorador de red)';
-                        setTimeout(()=>{{t.style.display='none'}}, 3500);
-                    }}
+                    function cop(txt, msg = '✓ Copiado') {{ navigator.clipboard.writeText(txt); let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = msg; setTimeout(()=>{{t.style.display='none'}}, 2000); }}
+                    function cop_ruta(e, txt) {{ navigator.clipboard.writeText(txt); let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = '✓ Ruta copiada (Pégala en tu explorador de red)'; setTimeout(()=>{{t.style.display='none'}}, 3500); }}
                 </script>
                 <div class="card" onclick="cop('{texto_monitor}')">
-                    <div class="info-txt">
-                        <b>{canal_sel}</b><br>
-                        Network: {clean(info.get('Network'))} | Tipo: {clean(info.get('Tipo'))}<br>
-                        ID: {station_id} | Server: {clean(info.get('Server'))}
-                    </div>
+                    <div class="info-txt"><b>{canal_sel}</b><br>Network: {clean(info.get('Network'))} | Tipo: {clean(info.get('Tipo'))}<br>ID: {station_id} | Server: {clean(info.get('Server'))}</div>
                     <div class="logo-img"><img src="{clean(info.get('LOGO_URL'))}" onerror="this.style.display='none'"></div>
                 </div>
                 {btn_grilla_html}
-                <button class="btn-promo" onclick="cop('{tag_auto}', '✓ Tag de Autopromo copiado')">
-                    TAG AUTOPROMO:<br>{tag_auto}
-                </button>
+                <button class="btn-promo" onclick="cop('{tag_auto}', '✓ Tag de Autopromo copiado')">TAG AUTOPROMO:<br>{tag_auto}</button>
                 <div id="t" class="toast"></div>
                 """
                 components.html(html_ficha, height=115, scrolling=False)
 
             st.divider()
             st.write("### IDs de Operación")
-            
             if not df_ids_canal.empty and 'CANAL' in df_ids_canal.columns:
                 ids_c = df_ids_canal[df_ids_canal['CANAL'] == canal_sel]
                 if not ids_c.empty:
@@ -336,75 +416,41 @@ with tab_canales:
                         <style>
                             :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --th-bg: #F8FAFC; --btn-bg: #FFF; --btn-border: #CBD5E1; --btn-hover: #EFF6FF; --hover-resaltador: rgba(250, 204, 21, 0.35); }
                             @media (prefers-color-scheme: dark) { :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; --hover-resaltador: rgba(250, 204, 21, 0.2); } }
-                            body{margin:0; background: transparent;} 
-                            table{width:100%;border-collapse:collapse;font-size:13px;font-family:sans-serif; background: var(--bg);} 
-                            th,td{border:1px solid var(--border);padding:8px;text-align:left; color: var(--text); transition: background-color 0.1s;} 
-                            th{background: var(--th-bg);} 
-                            tr:hover td { background-color: var(--hover-resaltador) !important; color: var(--text) !important; }
-                            .btn-i{width:100%;cursor:pointer;font-weight:700;background:var(--btn-bg);border:1px solid var(--btn-border); color: var(--text); border-radius:4px;padding:4px; transition:0.2s;}
-                            .btn-i:hover{background:var(--btn-hover); border-color:#3B82F6; transform: scale(1.02);}
-                            .btn-i.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
+                            body{margin:0; background: transparent;} table{width:100%;border-collapse:collapse;font-size:13px;font-family:sans-serif; background: var(--bg);} th,td{border:1px solid var(--border);padding:8px;text-align:left; color: var(--text); transition: background-color 0.1s;} th{background: var(--th-bg);} tr:hover td { background-color: var(--hover-resaltador) !important; color: var(--text) !important; }
+                            .btn-i{width:100%;cursor:pointer;font-weight:700;background:var(--btn-bg);border:1px solid var(--btn-border); color: var(--text); border-radius:4px;padding:4px; transition:0.2s;} .btn-i:hover{background:var(--btn-hover); border-color:#3B82F6; transform: scale(1.02);} .btn-i.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
                         </style>
-                        <script>
-                            function copiarID(texto, boton) {
-                                navigator.clipboard.writeText(texto);
-                                let txtOrig = boton.innerHTML;
-                                boton.innerHTML = '¡Copiado!';
-                                boton.classList.add('copiado');
-                                setTimeout(() => { boton.innerHTML = txtOrig; boton.classList.remove('copiado'); }, 1200);
-                            }
-                        </script>
+                        <script>function copiarID(texto, boton) { navigator.clipboard.writeText(texto); let txtOrig = boton.innerHTML; boton.innerHTML = '¡Copiado!'; boton.classList.add('copiado'); setTimeout(() => { boton.innerHTML = txtOrig; boton.classList.remove('copiado'); }, 1200); }</script>
                         """
                         html_ids += "<table><tr><th width='20%'>Tipo</th><th width='60%'>Descripción</th><th width='20%'>ID</th></tr>"
-                        
                         for _, r in df_h.iterrows():
                             v_id = str(r['ID'])
                             html_ids += f"<tr><td>{r['TIPO']}</td><td>{r['DESCRIPCION']}</td><td><button class='btn-i' onclick=\"copiarID('{v_id}', this)\">{v_id}</button></td></tr>"
                         html_ids += "</table>"
-                        
-                        altura_ids = 60 + (len(df_h) * 55)
-                        components.html(html_ids, height=altura_ids, scrolling=False)
-                else:
-                    st.info("Sin registros de IDs para este canal.")
-            else:
-                st.error("Error: No se encontró la columna 'CANAL'.")
-    else:
-        st.warning("Verifique los enlaces de Google Sheets.")
+                        components.html(html_ids, height=60 + (len(df_h) * 55), scrolling=False)
+                else: st.info("Sin registros de IDs para este canal.")
+idx_tab += 1
 
-# ==========================================
-# --- PESTAÑA 4: ADMIN ---
-# ==========================================
-with tab_admin:
-    if 'auth' not in st.session_state: st.session_state.auth = False
-
-    if not st.session_state.auth:
-        with st.form("login"):
-            u = st.text_input("Usuario")
-            p = st.text_input("Contraseña", type="password")
-            if st.form_submit_button("Entrar"):
-                if u == "LContreras" and p == "shanks1324":
-                    st.session_state.auth = True
-                    st.rerun()
-                else: st.error("Credenciales incorrectas. Intente de nuevo.")
-    else:
+# --- PESTAÑA 4: ADMIN (VALIDACIÓN DE SEMÁFOROS) --- (Solo para adm)
+if rol_actual == "adm":
+    with tabs[idx_tab]:
         st.subheader("🛡️ Panel de Validación Admin")
         
-        # 1. Tabla de Nuevos Registros
-        st.write("### 📥 IDs Pendientes (Generados en esta sesión)")
+        st.write("### 📥 Bandeja de Pendientes (Luz Amarilla)")
         if not st.session_state.nuevos_ids.empty:
-            st.dataframe(st.session_state.nuevos_ids, hide_index=True)
-            st.info("👆 Cópialos y pégalos en tu Google Sheet (Base Madre) para hacerlos permanentes.")
+            st.info("Revisa los IDs ingresados hoy. Al hacer clic en 'Validar', cambiarán a luz verde en el buscador general.")
+            
+            for idx, row in st.session_state.nuevos_ids.iterrows():
+                c1, c2 = st.columns([5, 1])
+                c1.warning(f"🟡 **Marca:** {row['Marca']} | **Versión:** {row['VersiOn']} | **ID:** `{row['ID']}`")
+                
+                if c2.button("Validar ✅", key=f"apr_{idx}", use_container_width=True):
+                    st.session_state.df_live.loc[st.session_state.df_live['ID'] == row['ID'], 'Estado'] = 'Confiable'
+                    st.session_state.nuevos_ids = st.session_state.nuevos_ids.drop(idx)
+                    st.rerun()
         else:
-            st.write("No hay IDs nuevos pendientes.")
+            st.success("Todo limpio. No hay IDs pendientes por validar en esta sesión.")
             
         st.divider()
-        
-        # 2. Tabla Base Madre de Drive
         st.write("### 📚 Base Madre de IDs (Confiables en Drive)")
-        if not df.empty:
-            st.dataframe(df[['Compañía', 'Marca', 'Producto', 'ID', 'Estado']], hide_index=True, height=400)
-            
-        st.divider()
-        if st.button("Cerrar Sesión"):
-            st.session_state.auth = False
-            st.rerun()
+        if not df_base.empty:
+            st.dataframe(df_base[['Compañía', 'Marca', 'Producto', 'ID', 'Estado']], hide_index=True, height=400)
