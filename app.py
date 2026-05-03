@@ -249,6 +249,7 @@ with tabs[idx_tab]:
             .history-container::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
             .hist-title { font-size: 14px; font-weight: bold; color: var(--text); margin-bottom: 10px; border-bottom: 2px solid var(--border); padding-bottom: 6px; position: sticky; top: 0; background: var(--bg); z-index: 10;}
             
+            /* Botones más compactos (0.75x) */
             .btn-hist { display: block; width: 100%; background: var(--btn-bg); border: 1px solid var(--border); padding: 8px 6px; margin-bottom: 6px; border-radius: 6px; cursor: pointer; color: var(--text); transition: 0.2s; overflow: hidden; }
             .btn-hist:hover { border-color: #3B82F6; background: var(--btn-hover); transform: translateY(-2px); box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
             .btn-hist.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
@@ -352,7 +353,7 @@ if rol_actual in ["regular", "adm"]:
 with tabs[idx_tab]:
     if not df_canales.empty:
         
-        # Función para encapsular y renderizar cualquier canal (cargado o buscado)
+        # Función encapsulada para renderizar la tarjeta y su propio expander
         def renderizar_canal(canal_sel):
             info = df_canales[df_canales['CANAL'] == canal_sel].iloc[0]
             def clean(val): return str(val).replace('nan', 'N/A').strip()
@@ -380,7 +381,6 @@ with tabs[idx_tab]:
 
                 btn_grilla_html = f"""<a href="{link}" target="_blank" class="btn-grilla" {onclick_action}><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">{texto_btn}</div></a>"""
             
-            # Identificador único para el JS para evitar conflictos si se abren múltiples canales
             uid = re.sub(r'\W+', '', canal_sel)
             
             html_ficha = f"""
@@ -415,7 +415,7 @@ with tabs[idx_tab]:
             if not df_ids_canal.empty and 'CANAL' in df_ids_canal.columns:
                 ids_c = df_ids_canal[df_ids_canal['CANAL'] == canal_sel]
                 if not ids_c.empty:
-                    # El menú desplegable (Expander)
+                    # El Expander queda pegado justo debajo del canal gracias al contenedor
                     with st.expander(f"📂 Ver IDs de Operación - {canal_sel}"):
                         hashes = ids_c['CODIGO HASH'].dropna().unique()
                         for h in hashes:
@@ -440,29 +440,37 @@ with tabs[idx_tab]:
                 else:
                     st.info(f"Sin registros de IDs de operación para el canal {canal_sel}.")
         
-        # 1. CARGA AUTOMÁTICA DEL USUARIO LOGUEADO
+        # 1. CARGA AUTOMÁTICA DEL USUARIO LOGUEADO EN FORMATO 2 COLUMNAS
         if not df_carga.empty and 'USUARIO' in df_carga.columns and 'CANAL' in df_carga.columns:
             usuario_actual = st.session_state.username.strip().upper()
             carga_user = df_carga[df_carga['USUARIO'].astype(str).str.strip().str.upper() == usuario_actual]
             canales_usuario = carga_user['CANAL'].dropna().unique().tolist()
             
-            # Validamos que los canales existan en nuestra base de datos
             canales_validos = [c for c in canales_usuario if c in df_canales['CANAL'].values]
 
             if canales_validos:
                 st.write(f"### 📋 Tus Canales Asignados ({len(canales_validos)})")
-                for c in canales_validos:
-                    renderizar_canal(c)
-                    st.markdown("<br>", unsafe_allow_html=True)
+                
+                # Dividir la lista de canales en pares para acomodarlos en 2 columnas
+                filas_de_canales = [canales_validos[i:i+2] for i in range(0, len(canales_validos), 2)]
+                
+                for fila in filas_de_canales:
+                    cols = st.columns(2)
+                    for idx, canal in enumerate(fila):
+                        with cols[idx]:
+                            # "cuadrito de fondo" que agrupa la ficha y su expander
+                            with st.container(border=True): 
+                                renderizar_canal(canal)
                 st.divider()
 
-        # 2. BUSCADOR MANUAL PARA OTROS CANALES
+        # 2. BUSCADOR MANUAL PARA OTROS CANALES (También con su cuadrito)
         st.write("### 🔍 Buscar Canal Manualmente")
         lista_c = ["-- Seleccionar --"] + sorted(df_canales['CANAL'].dropna().unique().tolist())
         canal_sel = st.selectbox("Canal:", lista_c, label_visibility="collapsed")
 
         if canal_sel != "-- Seleccionar --":
-            renderizar_canal(canal_sel)
+            with st.container(border=True):
+                renderizar_canal(canal_sel)
             
 idx_tab += 1
 
