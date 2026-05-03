@@ -28,7 +28,7 @@ if 'df_live' not in st.session_state:
 if 'nuevos_ids' not in st.session_state:
     st.session_state.nuevos_ids = pd.DataFrame(columns=['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'ID', 'Estado', 'Tipo'])
 
-# 3. CARGA DE DATOS MULTIPLES (Ahora con Usuarios)
+# 3. CARGA DE DATOS MULTIPLES (Ahora con Carga de Usuarios)
 @st.cache_data(ttl=300) 
 def cargar_datos():
     try:
@@ -45,18 +45,21 @@ def cargar_datos():
         df_ids_canal = pd.read_csv(url_ids_canal, encoding='utf-8-sig')
         df_ids_canal.columns = df_ids_canal.columns.str.strip().str.upper()
 
-        # ==========================================
-        # ⚠️ ¡ATENCIÓN! REEMPLAZA EL ENLACE DE ABAJO CON EL GID DE TU HOJA 'USUARIOS'
-        # ==========================================
         url_usuarios = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTJNg51LW2DbTBSEOOSPOTHR0dc4xCF1lTZqLq_z_R9LkfMHO7CzyrI45eGhbApkyGtcBwX4ibmRtZd/pub?gid=447315811&single=true&output=csv" 
-        
         try:
             df_usuarios = pd.read_csv(url_usuarios, encoding='utf-8-sig')
             df_usuarios.columns = df_usuarios.columns.str.strip().str.upper()
         except:
-            # Dataframe de emergencia por si no pones el link aún, para que no explote
             df_usuarios = pd.DataFrame(columns=['USUARIO', 'CONTRASEÑA', 'RANGO'])
-            st.error("⚠️ Faltó actualizar el enlace CSV de la hoja USUARIOS en el código.")
+            st.error("⚠️ Faltó actualizar el enlace CSV de la hoja USUARIOS.")
+
+        # NUEVA HOJA: CARGA DE USUARIOS
+        url_carga = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTJNg51LW2DbTBSEOOSPOTHR0dc4xCF1lTZqLq_z_R9LkfMHO7CzyrI45eGhbApkyGtcBwX4ibmRtZd/pub?gid=2019399218&single=true&output=csv"
+        try:
+            df_carga = pd.read_csv(url_carga, encoding='utf-8-sig')
+            df_carga.columns = df_carga.columns.str.strip().str.upper()
+        except:
+            df_carga = pd.DataFrame(columns=['USUARIO', 'CANAL'])
 
         columnas_clave = ['Compañía', 'Marca', 'Submarca', 'Producto', 'VersiOn', 'Tipo']
         if all(col in df.columns for col in columnas_clave):
@@ -66,12 +69,12 @@ def cargar_datos():
         if 'Estado' not in df.columns:
             df['Estado'] = 'Confiable'
         
-        return df, df_canales, df_ids_canal, df_usuarios
+        return df, df_canales, df_ids_canal, df_usuarios, df_carga
     except Exception as e:
         st.error(f"Error al cargar datos: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-df_base, df_canales, df_ids_canal, df_usuarios = cargar_datos()
+df_base, df_canales, df_ids_canal, df_usuarios, df_carga = cargar_datos()
 
 if st.session_state.df_live is None and not df_base.empty:
     st.session_state.df_live = df_base.copy()
@@ -96,7 +99,6 @@ if not st.session_state.logged_in:
             
             if btn_login:
                 if not df_usuarios.empty and 'USUARIO' in df_usuarios.columns and 'CONTRASEÑA' in df_usuarios.columns:
-                    # Validar credenciales
                     usuario_valido = df_usuarios[(df_usuarios['USUARIO'].astype(str) == user) & (df_usuarios['CONTRASEÑA'].astype(str) == pwd)]
                     
                     if not usuario_valido.empty:
@@ -109,7 +111,6 @@ if not st.session_state.logged_in:
                         else:
                             st.error("El rango de este usuario no es válido. Comuníquese con soporte.")
                     else:
-                        # Respaldo (Backdoor) tuyo por si falla el Drive
                         if user == "LContreras" and pwd == "shanks1324":
                             st.session_state.logged_in = True
                             st.session_state.username = "LContreras"
@@ -118,7 +119,6 @@ if not st.session_state.logged_in:
                         else:
                             st.error("Usuario o contraseña incorrectos.")
                 else:
-                    # Respaldo si la hoja de usuarios no carga bien
                     if user == "LContreras" and pwd == "shanks1324":
                         st.session_state.logged_in = True
                         st.session_state.username = "LContreras"
@@ -126,13 +126,12 @@ if not st.session_state.logged_in:
                         st.rerun()
                     else:
                         st.error("Base de datos de usuarios no configurada. Usa la cuenta maestra.")
-    st.stop() # Detiene la ejecución aquí si no están logueados
+    st.stop()
 
 # ==========================================
-# 5. CONSOLA PRINCIPAL (Una vez logueados)
+# 5. CONSOLA PRINCIPAL
 # ==========================================
 
-# Cabecera con Botón de Cerrar Sesión
 col_titulo, col_logout = st.columns([4, 1])
 with col_titulo:
     st.title("🛠️ Consola de Gestión Centralizada")
@@ -144,9 +143,6 @@ with col_logout:
         st.session_state.rol = ""
         st.rerun()
 
-# ------------------------------------------
-# LÓGICA DE PESTAÑAS DINÁMICAS (RBAC)
-# ------------------------------------------
 rol_actual = st.session_state.rol
 pestanas_visibles = ["🔍 Buscar AAEE"]
 
@@ -158,7 +154,6 @@ pestanas_visibles.append("📺 IDs x Canal")
 if rol_actual == "adm":
     pestanas_visibles.append("🛡️ Validación Admin")
 
-# Generamos solo las pestañas que el usuario tiene derecho a ver
 tabs = st.tabs(pestanas_visibles)
 idx_tab = 0
 
@@ -188,12 +183,10 @@ with tabs[idx_tab]:
                     tr:nth-child(even) td { background-color: var(--row-alt); }
                     tr:hover td { background-color: var(--hover-resaltador) !important; color: var(--text) !important; }
                     
-                    /* BOTONES NORMALES */
                     .btn-c { background: var(--btn-bg); border: 1px solid var(--btn-border); color: var(--text); cursor: pointer; width: 100%; font-weight: 700; border-radius: 4px; padding: 6px; transition: 0.2s; }
                     .btn-c:hover { background: var(--btn-hover); transform: scale(1.02); }
                     .btn-c.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
                     
-                    /* BOTONES NO VALIDADOS (AMARILLOS) */
                     .btn-c.warn { background-color: #FEF08A; border-color: #EAB308; color: #854D0E; }
                     .btn-c.warn:hover { background-color: #FDE047; }
                     @media (prefers-color-scheme: dark) {
@@ -202,7 +195,7 @@ with tabs[idx_tab]:
                     }
                 </style>
                 <script>
-                    function copiarID(id, desc, boton) {
+                    function copiarID(id, desc, version, tipo, boton) {
                         navigator.clipboard.writeText(id);
                         let txtOrig = boton.innerHTML;
                         boton.innerHTML = '¡Copiado!';
@@ -211,7 +204,7 @@ with tabs[idx_tab]:
                         
                         let historial = JSON.parse(localStorage.getItem('aaee_history') || '[]');
                         historial = historial.filter(item => item.id !== id); 
-                        historial.unshift({id: id, desc: desc}); 
+                        historial.unshift({id: id, desc: desc, version: version, tipo: tipo}); 
                         if (historial.length > 20) historial.pop(); 
                         localStorage.setItem('aaee_history', JSON.stringify(historial));
                     }
@@ -231,15 +224,16 @@ with tabs[idx_tab]:
                         luz = "<div style='text-align:center; font-size:16px;' title='Validado'>🟢</div>"
                         clase_btn = "btn-c"
                         
-                    limpiar = lambda x: str(x).replace('nan','N/A').replace("'","\\'").replace('"', '\\"')
-                    desc_texto = f"{limpiar(f['Marca'])} - {limpiar(f['Submarca'])} - {limpiar(f['Producto'])} - {limpiar(f['VersiOn'])}"
-                    html_tabla += f"<tr><td>{luz}</td><td>{f['Compañía']}</td><td>{f['Marca']}</td><td>{f['Submarca']}</td><td>{f['Producto']}</td><td>{f['VersiOn']}</td><td>{f['Tipo']}</td><td><button class='{clase_btn}' onclick=\"copiarID('{id_t}', '{desc_texto}', this)\">{id_t}</button></td></tr>"
+                    limpiar = lambda x: str(x).replace('nan','N/A').replace("'","\\'").replace('"', '\\"').upper()
+                    
+                    desc_texto = f"{limpiar(f['Marca'])} | {limpiar(f['Submarca'])} | {limpiar(f['Producto'])}"
+                    version_texto = limpiar(f['VersiOn'])
+                    tipo_texto = limpiar(f['Tipo'])
+                    
+                    html_tabla += f"<tr><td>{luz}</td><td>{f['Compañía']}</td><td>{f['Marca']}</td><td>{f['Submarca']}</td><td>{f['Producto']}</td><td>{f['VersiOn']}</td><td>{f['Tipo']}</td><td><button class='{clase_btn}' onclick=\"copiarID('{id_t}', '{desc_texto}', '{version_texto}', '{tipo_texto}', this)\">{id_t}</button></td></tr>"
                 
                 html_tabla += "</table>"
-                
-                altura_exacta = 60 + (len(resultados) * 55)
-                components.html(html_tabla, height=altura_exacta, scrolling=False)
-                
+                components.html(html_tabla, height=60 + (len(resultados) * 55), scrolling=False)
             else:
                 st.info("No hay coincidencias en la base de datos.")
 
@@ -253,15 +247,23 @@ with tabs[idx_tab]:
             .history-container::-webkit-scrollbar { width: 6px; }
             .history-container::-webkit-scrollbar-track { background: transparent; }
             .history-container::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
-            .hist-title { font-size: 16px; font-weight: bold; color: var(--text); margin-bottom: 12px; border-bottom: 2px solid var(--border); padding-bottom: 8px; position: sticky; top: 0; background: var(--bg); z-index: 10;}
-            .btn-hist { display: block; width: 100%; text-align: left; background: var(--btn-bg); border: 1px solid var(--border); padding: 10px; margin-bottom: 8px; border-radius: 6px; cursor: pointer; color: var(--text); transition: 0.2s; }
+            .hist-title { font-size: 14px; font-weight: bold; color: var(--text); margin-bottom: 10px; border-bottom: 2px solid var(--border); padding-bottom: 6px; position: sticky; top: 0; background: var(--bg); z-index: 10;}
+            
+            .btn-hist { display: block; width: 100%; background: var(--btn-bg); border: 1px solid var(--border); padding: 8px 6px; margin-bottom: 6px; border-radius: 6px; cursor: pointer; color: var(--text); transition: 0.2s; overflow: hidden; }
             .btn-hist:hover { border-color: #3B82F6; background: var(--btn-hover); transform: translateY(-2px); box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
             .btn-hist.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
-            .hist-desc { font-size: 11px; color: #64748b; margin-bottom: 4px; line-height: 1.3; }
-            .hist-id { font-size: 13px; font-weight: bold; }
-            .hist-empty { font-size: 13px; color: #94A3B8; text-align: center; padding: 30px 10px; line-height: 1.5;}
+            
+            .hist-desc { font-size: 10.5px; color: var(--text); font-weight: 700; text-align: center; padding-bottom: 4px; border-bottom: 1px solid #CBD5E1; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+            .hist-version { font-size: 11.5px; color: var(--text); font-weight: 800; text-align: center; padding-bottom: 4px; border-bottom: 1px solid #CBD5E1; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+            .hist-tipo { font-size: 12.5px; font-weight: 900; color: #3B82F6; letter-spacing: 0.5px; text-transform: uppercase; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+            
+            @media (prefers-color-scheme: dark) { 
+                .hist-desc, .hist-version { border-bottom-color: #4B5563; }
+                .hist-tipo { color: #60A5FA; } 
+            }
+            .hist-empty { font-size: 12px; color: #94A3B8; text-align: center; padding: 20px 5px; line-height: 1.4;}
         </style>
-        <div class='history-container'><div class='hist-title'>🕒 Historial</div><div id='hist-list'></div></div>
+        <div class='history-container'><div class='hist-title'>🕒 Historial (Clic para copiar)</div><div id='hist-list'></div></div>
         <script>
             let currentHistStr = "";
             function renderizarHistorial() {
@@ -271,12 +273,23 @@ with tabs[idx_tab]:
                 let historial = JSON.parse(str);
                 let contenedor = document.getElementById('hist-list');
                 if (historial.length === 0) { contenedor.innerHTML = "<div class='hist-empty'>Copia un ID en tu búsqueda y aparecerá aquí automáticamente.</div>"; return; }
+                
                 let html = "";
-                historial.forEach(item => { html += `<button class="btn-hist" onclick="copiarDesdeHistorial('${item.id}', this)"><div class="hist-desc">${item.desc}</div><div class="hist-id">📋 ${item.id}</div></button>`; });
+                historial.forEach(item => { 
+                    let versionTxt = item.version ? item.version : '-';
+                    let tipoTxt = item.tipo ? item.tipo : '-';
+
+                    html += `<button class="btn-hist" onclick="copiarDesdeHistorial('${item.id}', this)" title="${item.desc} | ${versionTxt} | ${tipoTxt}">
+                                <div class="hist-desc">${item.desc}</div>
+                                <div class="hist-version">${versionTxt}</div>
+                                <div class="hist-tipo">${tipoTxt}</div>
+                             </button>`; 
+                });
                 contenedor.innerHTML = html;
             }
             function copiarDesdeHistorial(id, boton) {
-                navigator.clipboard.writeText(id); boton.classList.add('copiado');
+                navigator.clipboard.writeText(id); 
+                boton.classList.add('copiado');
                 setTimeout(() => { boton.classList.remove('copiado'); }, 1200);
             }
             window.onload = renderizarHistorial; setInterval(renderizarHistorial, 800); 
@@ -285,7 +298,7 @@ with tabs[idx_tab]:
         components.html(html_historial, height=950, scrolling=False)
 idx_tab += 1
 
-# --- PESTAÑA 2: NUEVO ID --- (Solo si es Regular o Admin)
+# --- PESTAÑA 2: NUEVO ID ---
 if rol_actual in ["regular", "adm"]:
     with tabs[idx_tab]:
         st.subheader("Sugerir Nuevo Registro")
@@ -330,107 +343,130 @@ if rol_actual in ["regular", "adm"]:
                     }])
                     st.session_state.df_live = pd.concat([nuevo_registro, st.session_state.df_live], ignore_index=True)
                     st.session_state.nuevos_ids = pd.concat([st.session_state.nuevos_ids, nuevo_registro], ignore_index=True)
-                    st.success("¡Ingresado correctamente! Ya puedes buscarlo. Aparecerá con luz amarilla hasta ser validado por un Administrador.")
+                    st.success("¡Ingresado correctamente! Aparecerá con luz amarilla hasta ser validado por un Administrador.")
                 else:
                     st.error("⚠️ Compañía, Marca e ID son campos obligatorios.")
     idx_tab += 1
 
-# --- PESTAÑA 3: IDs x CANAL --- (Todos los roles)
+# --- PESTAÑA 3: IDs x CANAL ---
 with tabs[idx_tab]:
     if not df_canales.empty:
-        col_busqueda, col_identidad = st.columns([1, 3.5])
         
-        with col_busqueda:
-            st.write("**Selección de Canal**")
-            lista_c = ["-- Seleccionar --"] + sorted(df_canales['CANAL'].dropna().unique().tolist())
-            canal_sel = st.selectbox("Canal:", lista_c, label_visibility="collapsed")
+        # Función para encapsular y renderizar cualquier canal (cargado o buscado)
+        def renderizar_canal(canal_sel):
+            info = df_canales[df_canales['CANAL'] == canal_sel].iloc[0]
+            def clean(val): return str(val).replace('nan', 'N/A').strip()
+            
+            station_id = clean(info.get('StationID'))
+            tag_auto = clean(info.get('TAG DE AUTOPROMOS'))
+            grilla_val = clean(info.get('Grilla Web /Dish'))
+            texto_monitor = f"{canal_sel} - {station_id} - MONITOR"
+            
+            btn_grilla_html = ""
+            if grilla_val != 'N/A' and grilla_val != '':
+                if "http" in grilla_val.lower():
+                    link = grilla_val
+                    onclick_action = ""
+                    texto_btn = "🌐 Ver Grilla Web<br><span style='font-size:10px; font-weight:normal;'>(Abrir enlace)</span>"
+                elif "carta oficial" in grilla_val.lower():
+                    link = "file://192.168.148.80/Casos/MonDedicado/Programacion"
+                    ruta_js = r"\\192.168.148.80\Casos\MonDedicado\Programacion".replace("\\", "\\\\")
+                    onclick_action = f"onclick=\"cop_ruta(event, '{ruta_js}');\""
+                    texto_btn = "📁 Carta Oficial<br><span style='font-size:10px; font-weight:normal;'>(Intenta abrir / Copia ruta)</span>"
+                else:
+                    link = "https://secciones.dish.com.mx/guiadeprogramacion.html"
+                    onclick_action = ""
+                    texto_btn = f"📡 Grilla Dish<br><span style='font-size:11px; font-weight:normal;'>({grilla_val})</span>"
 
-        if canal_sel != "-- Seleccionar --":
-            with col_identidad:
-                info = df_canales[df_canales['CANAL'] == canal_sel].iloc[0]
-                def clean(val): return str(val).replace('nan', 'N/A').strip()
-                
-                station_id = clean(info.get('StationID'))
-                tag_auto = clean(info.get('TAG DE AUTOPROMOS'))
-                grilla_val = clean(info.get('Grilla Web /Dish'))
-                texto_monitor = f"{canal_sel} - {station_id} - MONITOR"
-                
-                btn_grilla_html = ""
-                if grilla_val != 'N/A' and grilla_val != '':
-                    if "http" in grilla_val.lower():
-                        link = grilla_val
-                        onclick_action = ""
-                        texto_btn = "🌐 Ver Grilla Web<br><span style='font-size:10px; font-weight:normal;'>(Abrir enlace)</span>"
-                    elif "carta oficial" in grilla_val.lower():
-                        link = "file://192.168.148.80/Casos/MonDedicado/Programacion"
-                        ruta_js = r"\\192.168.148.80\Casos\MonDedicado\Programacion".replace("\\", "\\\\")
-                        onclick_action = f"onclick=\"cop_ruta(event, '{ruta_js}');\""
-                        texto_btn = "📁 Carta Oficial<br><span style='font-size:10px; font-weight:normal;'>(Intenta abrir / Copia ruta)</span>"
-                    else:
-                        link = "https://secciones.dish.com.mx/guiadeprogramacion.html"
-                        onclick_action = ""
-                        texto_btn = f"📡 Grilla Dish<br><span style='font-size:11px; font-weight:normal;'>({grilla_val})</span>"
+                btn_grilla_html = f"""<a href="{link}" target="_blank" class="btn-grilla" {onclick_action}><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">{texto_btn}</div></a>"""
+            
+            # Identificador único para el JS para evitar conflictos si se abren múltiples canales
+            uid = re.sub(r'\W+', '', canal_sel)
+            
+            html_ficha = f"""
+            <style>
+                :root {{ --bg-card: #F8FAFC; --text: #1E293B; --btn-promo: #0F172A; --btn-text: #FFF; }}
+                @media (prefers-color-scheme: dark) {{ :root {{ --bg-card: #1E293B; --text: #F8FAFC; --btn-promo: #374151; }} }}
+                body {{ font-family: sans-serif; margin: 0; display: flex; gap: 15px; align-items: stretch; background: transparent; width: 100%; }}
+                .card {{ flex: 2.2; display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); border: 2px dashed #3B82F6; border-radius: 10px; padding: 12px; cursor: pointer; transition: 0.2s; color: var(--text); }}
+                .card:hover {{ transform: scale(1.01); border-color: #60A5FA; }}
+                .info-txt {{ font-size: 13px; line-height: 1.4; }}
+                .logo-img img {{ max-height: 70px; max-width: 120px; }}
+                .btn-grilla {{ flex: 1; background: #3B82F6; color: white; border-radius: 10px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none; border: none; box-sizing: border-box; }}
+                .btn-grilla:hover {{ background: #2563EB; transform: scale(1.02); }}
+                .btn-promo {{ flex: 1; background: var(--btn-promo); color: var(--btn-text); border: none; border-radius: 10px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; }}
+                .btn-promo:hover {{ filter: brightness(1.2); transform: scale(1.02); }}
+                .toast {{ position: fixed; bottom: 5px; right: 5px; background: #10B981; color: white; padding: 8px 15px; border-radius: 5px; font-size: 12px; font-weight: bold; display: none; z-index: 1000; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);}}
+            </style>
+            <script>
+                function cop_{uid}(txt, msg = '✓ Copiado') {{ navigator.clipboard.writeText(txt); let t = document.getElementById('t_{uid}'); t.style.display='block'; t.innerHTML = msg; setTimeout(()=>{{t.style.display='none'}}, 2000); }}
+                function cop_ruta(e, txt) {{ navigator.clipboard.writeText(txt); let t = document.getElementById('t_{uid}'); t.style.display='block'; t.innerHTML = '✓ Ruta copiada (Pégala en tu explorador de red)'; setTimeout(()=>{{t.style.display='none'}}, 3500); }}
+            </script>
+            <div class="card" onclick="cop_{uid}('{texto_monitor}')">
+                <div class="info-txt"><b>{canal_sel}</b><br>Network: {clean(info.get('Network'))} | Tipo: {clean(info.get('Tipo'))}<br>ID: {station_id} | Server: {clean(info.get('Server'))}</div>
+                <div class="logo-img"><img src="{clean(info.get('LOGO_URL'))}" onerror="this.style.display='none'"></div>
+            </div>
+            {btn_grilla_html}
+            <button class="btn-promo" onclick="cop_{uid}('{tag_auto}', '✓ Tag de Autopromo copiado')">TAG AUTOPROMO:<br>{tag_auto}</button>
+            <div id="t_{uid}" class="toast"></div>
+            """
+            components.html(html_ficha, height=115, scrolling=False)
 
-                    btn_grilla_html = f"""<a href="{link}" target="_blank" class="btn-grilla" {onclick_action}><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">{texto_btn}</div></a>"""
-                
-                html_ficha = f"""
-                <style>
-                    :root {{ --bg-card: #F8FAFC; --text: #1E293B; --btn-promo: #0F172A; --btn-text: #FFF; }}
-                    @media (prefers-color-scheme: dark) {{ :root {{ --bg-card: #1E293B; --text: #F8FAFC; --btn-promo: #374151; }} }}
-                    body {{ font-family: sans-serif; margin: 0; display: flex; gap: 15px; align-items: stretch; background: transparent; width: 100%; }}
-                    .card {{ flex: 2.2; display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); border: 2px dashed #3B82F6; border-radius: 10px; padding: 12px; cursor: pointer; transition: 0.2s; color: var(--text); }}
-                    .card:hover {{ transform: scale(1.01); border-color: #60A5FA; }}
-                    .info-txt {{ font-size: 13px; line-height: 1.4; }}
-                    .logo-img img {{ max-height: 70px; max-width: 120px; }}
-                    .btn-grilla {{ flex: 1; background: #3B82F6; color: white; border-radius: 10px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; text-decoration: none; border: none; box-sizing: border-box; }}
-                    .btn-grilla:hover {{ background: #2563EB; transform: scale(1.02); }}
-                    .btn-promo {{ flex: 1; background: var(--btn-promo); color: var(--btn-text); border: none; border-radius: 10px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; }}
-                    .btn-promo:hover {{ filter: brightness(1.2); transform: scale(1.02); }}
-                    .toast {{ position: fixed; bottom: 5px; right: 5px; background: #10B981; color: white; padding: 8px 15px; border-radius: 5px; font-size: 12px; font-weight: bold; display: none; z-index: 1000; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);}}
-                </style>
-                <script>
-                    function cop(txt, msg = '✓ Copiado') {{ navigator.clipboard.writeText(txt); let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = msg; setTimeout(()=>{{t.style.display='none'}}, 2000); }}
-                    function cop_ruta(e, txt) {{ navigator.clipboard.writeText(txt); let t = document.getElementById('t'); t.style.display='block'; t.innerHTML = '✓ Ruta copiada (Pégala en tu explorador de red)'; setTimeout(()=>{{t.style.display='none'}}, 3500); }}
-                </script>
-                <div class="card" onclick="cop('{texto_monitor}')">
-                    <div class="info-txt"><b>{canal_sel}</b><br>Network: {clean(info.get('Network'))} | Tipo: {clean(info.get('Tipo'))}<br>ID: {station_id} | Server: {clean(info.get('Server'))}</div>
-                    <div class="logo-img"><img src="{clean(info.get('LOGO_URL'))}" onerror="this.style.display='none'"></div>
-                </div>
-                {btn_grilla_html}
-                <button class="btn-promo" onclick="cop('{tag_auto}', '✓ Tag de Autopromo copiado')">TAG AUTOPROMO:<br>{tag_auto}</button>
-                <div id="t" class="toast"></div>
-                """
-                components.html(html_ficha, height=115, scrolling=False)
-
-            st.divider()
-            st.write("### IDs de Operación")
             if not df_ids_canal.empty and 'CANAL' in df_ids_canal.columns:
                 ids_c = df_ids_canal[df_ids_canal['CANAL'] == canal_sel]
                 if not ids_c.empty:
-                    hashes = ids_c['CODIGO HASH'].dropna().unique()
-                    for h in hashes:
-                        st.markdown(f"**{h}**")
-                        df_h = ids_c[ids_c['CODIGO HASH'] == h]
-                        
-                        html_ids = """
-                        <style>
-                            :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --th-bg: #F8FAFC; --btn-bg: #FFF; --btn-border: #CBD5E1; --btn-hover: #EFF6FF; --hover-resaltador: rgba(250, 204, 21, 0.35); }
-                            @media (prefers-color-scheme: dark) { :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; --hover-resaltador: rgba(250, 204, 21, 0.2); } }
-                            body{margin:0; background: transparent;} table{width:100%;border-collapse:collapse;font-size:13px;font-family:sans-serif; background: var(--bg);} th,td{border:1px solid var(--border);padding:8px;text-align:left; color: var(--text); transition: background-color 0.1s;} th{background: var(--th-bg);} tr:hover td { background-color: var(--hover-resaltador) !important; color: var(--text) !important; }
-                            .btn-i{width:100%;cursor:pointer;font-weight:700;background:var(--btn-bg);border:1px solid var(--btn-border); color: var(--text); border-radius:4px;padding:4px; transition:0.2s;} .btn-i:hover{background:var(--btn-hover); border-color:#3B82F6; transform: scale(1.02);} .btn-i.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
-                        </style>
-                        <script>function copiarID(texto, boton) { navigator.clipboard.writeText(texto); let txtOrig = boton.innerHTML; boton.innerHTML = '¡Copiado!'; boton.classList.add('copiado'); setTimeout(() => { boton.innerHTML = txtOrig; boton.classList.remove('copiado'); }, 1200); }</script>
-                        """
-                        html_ids += "<table><tr><th width='20%'>Tipo</th><th width='60%'>Descripción</th><th width='20%'>ID</th></tr>"
-                        for _, r in df_h.iterrows():
-                            v_id = str(r['ID'])
-                            html_ids += f"<tr><td>{r['TIPO']}</td><td>{r['DESCRIPCION']}</td><td><button class='btn-i' onclick=\"copiarID('{v_id}', this)\">{v_id}</button></td></tr>"
-                        html_ids += "</table>"
-                        components.html(html_ids, height=60 + (len(df_h) * 55), scrolling=False)
-                else: st.info("Sin registros de IDs para este canal.")
+                    # El menú desplegable (Expander)
+                    with st.expander(f"📂 Ver IDs de Operación - {canal_sel}"):
+                        hashes = ids_c['CODIGO HASH'].dropna().unique()
+                        for h in hashes:
+                            st.markdown(f"**{h}**")
+                            df_h = ids_c[ids_c['CODIGO HASH'] == h]
+                            
+                            html_ids = """
+                            <style>
+                                :root { --bg: #FFFFFF; --text: #111827; --border: #E5E7EB; --th-bg: #F8FAFC; --btn-bg: #FFF; --btn-border: #CBD5E1; --btn-hover: #EFF6FF; --hover-resaltador: rgba(250, 204, 21, 0.35); }
+                                @media (prefers-color-scheme: dark) { :root { --bg: #1F2937; --text: #F9FAFB; --border: #374151; --th-bg: #111827; --btn-bg: #374151; --btn-border: #4B5563; --btn-hover: #4B5563; --hover-resaltador: rgba(250, 204, 21, 0.2); } }
+                                body{margin:0; background: transparent;} table{width:100%;border-collapse:collapse;font-size:13px;font-family:sans-serif; background: var(--bg);} th,td{border:1px solid var(--border);padding:8px;text-align:left; color: var(--text); transition: background-color 0.1s;} th{background: var(--th-bg);} tr:hover td { background-color: var(--hover-resaltador) !important; color: var(--text) !important; }
+                                .btn-i{width:100%;cursor:pointer;font-weight:700;background:var(--btn-bg);border:1px solid var(--btn-border); color: var(--text); border-radius:4px;padding:4px; transition:0.2s;} .btn-i:hover{background:var(--btn-hover); border-color:#3B82F6; transform: scale(1.02);} .btn-i.copiado { background-color: #10B981 !important; color: white !important; border-color: #059669 !important; }
+                            </style>
+                            <script>function copiarID(texto, boton) { navigator.clipboard.writeText(texto); let txtOrig = boton.innerHTML; boton.innerHTML = '¡Copiado!'; boton.classList.add('copiado'); setTimeout(() => { boton.innerHTML = txtOrig; boton.classList.remove('copiado'); }, 1200); }</script>
+                            """
+                            html_ids += "<table><tr><th width='20%'>Tipo</th><th width='60%'>Descripción</th><th width='20%'>ID</th></tr>"
+                            for _, r in df_h.iterrows():
+                                v_id = str(r['ID'])
+                                html_ids += f"<tr><td>{r['TIPO']}</td><td>{r['DESCRIPCION']}</td><td><button class='btn-i' onclick=\"copiarID('{v_id}', this)\">{v_id}</button></td></tr>"
+                            html_ids += "</table>"
+                            components.html(html_ids, height=60 + (len(df_h) * 55), scrolling=False)
+                else:
+                    st.info(f"Sin registros de IDs de operación para el canal {canal_sel}.")
+        
+        # 1. CARGA AUTOMÁTICA DEL USUARIO LOGUEADO
+        if not df_carga.empty and 'USUARIO' in df_carga.columns and 'CANAL' in df_carga.columns:
+            usuario_actual = st.session_state.username.strip().upper()
+            carga_user = df_carga[df_carga['USUARIO'].astype(str).str.strip().str.upper() == usuario_actual]
+            canales_usuario = carga_user['CANAL'].dropna().unique().tolist()
+            
+            # Validamos que los canales existan en nuestra base de datos
+            canales_validos = [c for c in canales_usuario if c in df_canales['CANAL'].values]
+
+            if canales_validos:
+                st.write(f"### 📋 Tus Canales Asignados ({len(canales_validos)})")
+                for c in canales_validos:
+                    renderizar_canal(c)
+                    st.markdown("<br>", unsafe_allow_html=True)
+                st.divider()
+
+        # 2. BUSCADOR MANUAL PARA OTROS CANALES
+        st.write("### 🔍 Buscar Canal Manualmente")
+        lista_c = ["-- Seleccionar --"] + sorted(df_canales['CANAL'].dropna().unique().tolist())
+        canal_sel = st.selectbox("Canal:", lista_c, label_visibility="collapsed")
+
+        if canal_sel != "-- Seleccionar --":
+            renderizar_canal(canal_sel)
+            
 idx_tab += 1
 
-# --- PESTAÑA 4: ADMIN (VALIDACIÓN DE SEMÁFOROS) --- (Solo para adm)
+# --- PESTAÑA 4: ADMIN ---
 if rol_actual == "adm":
     with tabs[idx_tab]:
         st.subheader("🛡️ Panel de Validación Admin")
